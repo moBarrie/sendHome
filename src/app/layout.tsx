@@ -3,8 +3,8 @@ import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "New Firebase Studio Project",
-  description: "Ready to build something amazing.",
+  title: "SwiftSend - Money Transfer",
+  description: "Send money to Sierra Leone from the UK, fast and securely.",
 };
 
 export default function RootLayout({
