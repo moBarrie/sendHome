@@ -5,10 +5,20 @@ import Link from "next/link";
 import { X } from "lucide-react";
 
 export default function Contact() {
-  const [form, setForm] = useState({ name: "", email: "", phone: "", reason: "", message: "" });
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    reason: "",
+    message: "",
+  });
   const [submitted, setSubmitted] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >
+  ) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
@@ -23,7 +33,11 @@ export default function Contact() {
       <header className="w-full border-b bg-background/95 py-6">
         <div className="container mx-auto flex items-center justify-between">
           <h1 className="text-3xl font-bold">Contact SendHome</h1>
-          <Link href="/" className="text-primary hover:bg-muted rounded-full p-2 transition" aria-label="Close">
+          <Link
+            href="/"
+            className="text-primary hover:bg-muted rounded-full p-2 transition"
+            aria-label="Close"
+          >
             <X className="w-6 h-6" />
           </Link>
         </div>
@@ -32,17 +46,25 @@ export default function Contact() {
         <section className="mb-8 text-center">
           <h2 className="text-xl font-semibold mb-2">How can we help you?</h2>
           <p className="text-muted-foreground">
-            For questions about transfers, compliance, or support, please use the form below. Our team is here to help you send money home safely and easily.
+            For questions about transfers, compliance, or support, please use
+            the form below. Our team is here to help you send money home safely
+            and easily.
           </p>
         </section>
         {submitted ? (
           <div className="bg-green-50 border border-green-200 text-green-800 p-6 rounded text-center">
-            Thank you for reaching out! Our support team will get back to you soon.
+            Thank you for reaching out! Our support team will get back to you
+            soon.
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="bg-white border rounded-lg shadow p-8 space-y-6">
+          <form
+            onSubmit={handleSubmit}
+            className="bg-white border rounded-lg shadow p-8 space-y-6"
+          >
             <div>
-              <label htmlFor="name" className="block text-sm font-medium mb-1">Full Name</label>
+              <label htmlFor="name" className="block text-sm font-medium mb-1">
+                Full Name
+              </label>
               <input
                 id="name"
                 name="name"
@@ -54,7 +76,9 @@ export default function Contact() {
               />
             </div>
             <div>
-              <label htmlFor="email" className="block text-sm font-medium mb-1">Email Address</label>
+              <label htmlFor="email" className="block text-sm font-medium mb-1">
+                Email Address
+              </label>
               <input
                 id="email"
                 name="email"
@@ -66,7 +90,9 @@ export default function Contact() {
               />
             </div>
             <div>
-              <label htmlFor="phone" className="block text-sm font-medium mb-1">Phone Number (optional)</label>
+              <label htmlFor="phone" className="block text-sm font-medium mb-1">
+                Phone Number (optional)
+              </label>
               <input
                 id="phone"
                 name="phone"
@@ -78,7 +104,12 @@ export default function Contact() {
               />
             </div>
             <div>
-              <label htmlFor="reason" className="block text-sm font-medium mb-1">Reason for Contact</label>
+              <label
+                htmlFor="reason"
+                className="block text-sm font-medium mb-1"
+              >
+                Reason for Contact
+              </label>
               <select
                 id="reason"
                 name="reason"
@@ -96,7 +127,12 @@ export default function Contact() {
               </select>
             </div>
             <div>
-              <label htmlFor="message" className="block text-sm font-medium mb-1">Message</label>
+              <label
+                htmlFor="message"
+                className="block text-sm font-medium mb-1"
+              >
+                Message
+              </label>
               <textarea
                 id="message"
                 name="message"
@@ -117,8 +153,24 @@ export default function Contact() {
           </form>
         )}
         <section className="mt-10 text-center text-muted-foreground text-sm">
-          <p>For urgent support, call us at <a href="tel:+442012345678" className="text-primary hover:underline">+44 20 1234 5678</a></p>
-          <p>Or email <a href="mailto:support@sendhome.com" className="text-primary hover:underline">support@sendhome.com</a></p>
+          <p>
+            For urgent support, call us at{" "}
+            <a
+              href="tel:+442012345678"
+              className="text-primary hover:underline"
+            >
+              +44 20 1234 5678
+            </a>
+          </p>
+          <p>
+            Or email{" "}
+            <a
+              href="mailto:support@sendhome.com"
+              className="text-primary hover:underline"
+            >
+              support@sendhome.com
+            </a>
+          </p>
         </section>
       </main>
     </div>

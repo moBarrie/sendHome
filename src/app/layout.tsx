@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/toaster";
+import Header from "@/components/header";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -30,24 +31,7 @@ export default function RootLayout({
       </head>
       <body className="font-body antialiased">
         <div className="flex flex-col min-h-screen">
-          <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="container flex h-14 items-center justify-between">
-              <Link
-                href="/"
-                className="flex items-center space-x-2 ml-6 md:ml-12"
-              >
-                <span className="font-bold text-xl">SendHome</span>
-              </Link>
-              <nav className="flex items-center space-x-2">
-                <Button asChild variant="ghost">
-                  <Link href="/login">Log In</Link>
-                </Button>
-                <Button asChild>
-                  <Link href="/signup">Sign Up</Link>
-                </Button>
-              </nav>
-            </div>
-          </header>
+          <Header />
           <main className="flex-1 mt-0">{children}</main>
           <footer className="border-t">
             <div className="container flex flex-col md:flex-row items-center justify-around gap-4 py-10 md:h-24 md:py-0">

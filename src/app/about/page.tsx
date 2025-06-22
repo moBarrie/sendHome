@@ -8,14 +8,18 @@ export default function About() {
       <header className="w-full border-b bg-background/95 py-6">
         <div className="container mx-auto flex items-center justify-between">
           <h1 className="text-3xl font-bold">About SendHome</h1>
-          <Link href="/" className="text-primary hover:underline text-lg">Home</Link>
+          <Link href="/" className="text-primary hover:underline text-lg">
+            Home
+          </Link>
         </div>
       </header>
       <main className="flex-1 container mx-auto py-12 max-w-3xl">
         <section className="mb-8">
           <h2 className="text-2xl font-semibold mb-2">Our Mission</h2>
           <p className="text-muted-foreground mb-4">
-            SendHome is dedicated to making money transfers to Sierra Leone fast, affordable, and secure. We believe everyone should be able to support their loved ones with confidence and ease.
+            SendHome is dedicated to making money transfers to Sierra Leone
+            fast, affordable, and secure. We believe everyone should be able to
+            support their loved ones with confidence and ease.
           </p>
         </section>
         <section className="mb-8">
@@ -31,13 +35,20 @@ export default function About() {
         <section className="mb-8">
           <h2 className="text-2xl font-semibold mb-2">Our Story</h2>
           <p className="text-muted-foreground">
-            Founded by members of the Sierra Leonean diaspora, SendHome was created to solve the real challenges faced when sending money home. Our team is passionate about connecting families and empowering communities through reliable financial services.
+            Founded by members of the Sierra Leonean diaspora, SendHome was
+            created to solve the real challenges faced when sending money home.
+            Our team is passionate about connecting families and empowering
+            communities through reliable financial services.
           </p>
         </section>
         <section>
           <h2 className="text-2xl font-semibold mb-2">Contact Us</h2>
           <p className="text-muted-foreground">
-            Have questions or feedback? <Link href="/contact" className="text-primary hover:underline">Contact our team</Link> — we’re here to help!
+            Have questions or feedback?{" "}
+            <Link href="/contact" className="text-primary hover:underline">
+              Contact our team
+            </Link>{" "}
+            — we’re here to help!
           </p>
         </section>
       </main>
