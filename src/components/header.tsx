@@ -4,14 +4,21 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import NavAuthenticated from "@/components/nav-authenticated";
 import { useEffect, useState } from "react";
-import { auth } from "@/lib/firebase";
+import { getCurrentUser } from "@/lib/auth";
 
 export default function Header() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | undefined>(undefined);
+
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => setIsLoggedIn(!!u));
-    return () => unsub();
+    // Check Supabase auth state
+    getCurrentUser().then((user) => setIsLoggedIn(!!user));
   }, []);
+
+  if (isLoggedIn === undefined) {
+    // Avoid hydration mismatch: render nothing until auth state is known
+    return null;
+  }
+
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center justify-between">

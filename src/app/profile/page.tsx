@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { auth } from "@/lib/firebase";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { getCurrentUser, signOut as supaSignOut } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -22,20 +21,19 @@ export default function Profile() {
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+    getCurrentUser().then(async (u) => {
       if (u) {
         setUser(u);
         // Fetch extra profile details from Supabase
         const { data } = await supabase
           .from("profiles")
           .select("address, city, country, postal_code")
-          .eq("id", u.uid)
+          .eq("id", u.id)
           .single();
         if (data) setProfile(data);
         setLoading(false);
       } else router.push("/login");
     });
-    return () => unsubscribe();
   }, [router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,7 +47,7 @@ export default function Profile() {
     setSuccess(false);
     // Upsert profile details in Supabase
     const { error } = await supabase.from("profiles").upsert({
-      id: user.uid,
+      id: user.id,
       address: profile.address,
       city: profile.city,
       country: profile.country,
@@ -61,7 +59,7 @@ export default function Profile() {
   };
 
   const handleLogout = async () => {
-    await signOut(auth);
+    await supaSignOut();
     router.push("/login");
   };
 

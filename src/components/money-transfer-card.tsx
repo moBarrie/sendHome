@@ -14,74 +14,94 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ArrowRight, Info } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { loadStripe } from "@stripe/stripe-js";
+import {
+  Elements,
+  CardElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
 
-function PaymentForm({
+const stripePromise = loadStripe(
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
+);
+
+function StripePaymentForm({
   amount,
   onSuccess,
   onCancel,
+  phoneNumber,
 }: {
   amount: number;
   onSuccess: () => void;
   onCancel: () => void;
+  phoneNumber: string;
 }) {
-  const [card, setCard] = useState({ number: "", expiry: "", cvc: "" });
+  const stripe = useStripe();
+  const elements = useElements();
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
 
-  // Mock card payment: accept any non-empty card details
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setProcessing(true);
-    setTimeout(() => {
-      if (card.number && card.expiry && card.cvc) {
+    setError("");
+    if (!stripe || !elements) {
+      setError("Stripe not loaded");
+      setProcessing(false);
+      return;
+    }
+    // 1. Create PaymentIntent on backend
+    const res = await fetch("/api/create-payment-intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount, phoneNumber }),
+    });
+    const { clientSecret, transferId } = await res.json();
+    if (!clientSecret) {
+      setError("Failed to initiate payment.");
+      setProcessing(false);
+      return;
+    }
+    // 2. Confirm card payment
+    const result = await stripe.confirmCardPayment(clientSecret, {
+      payment_method: {
+        card: elements.getElement(CardElement)!,
+      },
+    });
+    if (result.error) {
+      setError(result.error.message || "Payment failed.");
+      setProcessing(false);
+      return;
+    }
+    if (result.paymentIntent && result.paymentIntent.status === "succeeded") {
+      // 3. Trigger payout
+      const payoutRes = await fetch("/api/trigger-payout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transferId,
+          paymentIntentId: result.paymentIntent.id,
+        }),
+      });
+      if (!payoutRes.ok) {
+        setError("Payment succeeded but payout failed.");
         setProcessing(false);
-        onSuccess(); // Simulate payment success
-      } else {
-        setProcessing(false);
-        setError("Please fill all card details.");
+        return;
       }
-    }, 1200); // Simulate network delay
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setCard({ ...card, [e.target.name]: e.target.value });
+      onSuccess();
+    } else {
+      setError("Payment not successful.");
+    }
+    setProcessing(false);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <Label>Card Number</Label>
-      <Input
-        name="number"
-        maxLength={19}
-        placeholder="1234 5678 9012 3456"
-        value={card.number}
-        onChange={handleChange}
-        required
+      <CardElement
+        options={{ hidePostalCode: true }}
+        className="p-2 border rounded"
       />
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <Label>Expiry</Label>
-          <Input
-            name="expiry"
-            maxLength={5}
-            placeholder="MM/YY"
-            value={card.expiry}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div className="flex-1">
-          <Label>CVC</Label>
-          <Input
-            name="cvc"
-            maxLength={4}
-            placeholder="CVC"
-            value={card.cvc}
-            onChange={handleChange}
-            required
-          />
-        </div>
-      </div>
       {error && <div className="text-red-600 text-sm">{error}</div>}
       <Button type="submit" className="w-full" disabled={processing}>
         {processing ? "Processing..." : `Pay £${amount.toFixed(2)}`}
@@ -277,11 +297,10 @@ export function MoneyTransferCard() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm">
             <h2 className="text-xl font-bold mb-4">Enter Card Details</h2>
-            <PaymentForm
-              amount={sendAmountNum}
-              onSuccess={handlePaymentSuccess}
-              onCancel={handleCancel}
-            />
+            {/* StripePaymentForm is only available in the dashboard with full transfer context */}
+            <div className="text-center text-red-600 font-medium">
+              Payment demo is only available from your dashboard.
+            </div>
           </div>
         </div>
       )}
@@ -342,5 +361,3 @@ export function MoneyTransferCard() {
     </Card>
   );
 }
-
-export { PaymentForm };

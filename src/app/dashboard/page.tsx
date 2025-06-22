@@ -1,7 +1,7 @@
 "use client";
 
-import { auth } from "@/lib/firebase";
-import { supabase, setSupabaseAuthHeader } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import { getCurrentUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,8 +10,137 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { PaymentForm } from "@/components/money-transfer-card";
+import { loadStripe } from "@stripe/stripe-js";
+import {
+  Elements,
+  CardElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
 import { useEffect, useState } from "react";
+
+const stripePromise = loadStripe(
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
+);
+console.log(
+  "Stripe publishable key:",
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+);
+
+function StripePaymentForm({
+  amount,
+  onSuccess,
+  onCancel,
+  phoneNumber,
+  userId,
+  pendingTransfer,
+}: {
+  amount: number;
+  onSuccess: () => void;
+  onCancel: () => void;
+  phoneNumber: string;
+  userId: string;
+  pendingTransfer: any;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProcessing(true);
+    setError("");
+    if (!stripe || !elements) {
+      setError("Stripe not loaded");
+      setProcessing(false);
+      return;
+    }
+    // Get Supabase user session for RLS
+    // (No need for Firebase ID token)
+    // 1. Create PaymentIntent on backend
+    const res = await fetch("/api/create-payment-intent", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        amount,
+        phoneNumber,
+        userId,
+        recipientId: pendingTransfer?.recipient_id,
+        amountSll: pendingTransfer?.amount_sll,
+        gbpToSll: pendingTransfer?.gbp_to_sll_rate,
+        paymentMethod: "card", // Always include paymentMethod
+      }),
+    });
+    const { clientSecret, transferId } = await res.json();
+    if (!clientSecret) {
+      setError("Failed to initiate payment.");
+      setProcessing(false);
+      return;
+    }
+    // 2. Confirm card payment
+    const result = await stripe.confirmCardPayment(clientSecret, {
+      payment_method: {
+        card: elements.getElement(CardElement)!,
+      },
+    });
+    if (result.error) {
+      setError(result.error.message || "Payment failed.");
+      setProcessing(false);
+      return;
+    }
+    if (result.paymentIntent && result.paymentIntent.status === "succeeded") {
+      // 3. Trigger payout
+      const payoutRes = await fetch("/api/trigger-payout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stripePaymentIntentId: result.paymentIntent.id,
+          transferId,
+          recipientPhone: pendingTransfer.recipient_phone,
+          amount: pendingTransfer.amount_sll,
+          providerCode: "m17", // or your logic
+          financialAccountId:
+            process.env.NEXT_PUBLIC_MONIME_FINANCIAL_ACCOUNT_ID,
+          monimeSpaceId: process.env.NEXT_PUBLIC_MONIME_SPACE_ID,
+        }),
+      });
+      if (!payoutRes.ok) {
+        setError("Payment succeeded but payout failed.");
+        setProcessing(false);
+        return;
+      }
+      onSuccess();
+    } else {
+      setError("Payment not successful.");
+    }
+    setProcessing(false);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <CardElement
+        options={{ hidePostalCode: true }}
+        className="p-2 border rounded"
+      />
+      {error && <div className="text-red-600 text-sm">{error}</div>}
+      <Button type="submit" className="w-full" disabled={processing}>
+        {processing ? "Processing..." : `Pay £${amount.toFixed(2)}`}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        className="w-full"
+        onClick={onCancel}
+        disabled={processing}
+      >
+        Cancel
+      </Button>
+    </form>
+  );
+}
 
 export default function Dashboard() {
   // All hooks at the top, before any return or conditional
@@ -43,18 +172,10 @@ export default function Dashboard() {
   const rateLoading = false;
   const rateError = null;
 
-  const paymentFees = {
-    card: 0.03, // 3%
-    mobile: 0.025, // 2.5%
-    bank: 0.015, // 1.5%
-  };
-  const paymentLabels = {
-    card: "Card",
-    mobile: "Mobile Money",
-    bank: "Bank Transfer",
-  };
+  // Use a fixed 5% fee for all payment methods
+  const FEE_PERCENT = 0.05;
   const amountNum = parseFloat(transferAmount) || 0;
-  const fee = amountNum * paymentFees[paymentMethod];
+  const fee = amountNum * FEE_PERCENT;
   const total = amountNum + fee;
   const sllAmount = gbpToSll ? amountNum * gbpToSll : 0;
 
@@ -86,16 +207,17 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => {
+    getCurrentUser().then((u) => {
       setUser(u);
       setAuthChecked(true);
     });
-    return () => unsub();
   }, []);
 
   useEffect(() => {
     if (mounted && authChecked && !user) {
-      window.location.href = "/login";
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
     }
   }, [mounted, authChecked, user]);
 
@@ -105,6 +227,7 @@ export default function Dashboard() {
     supabase
       .from("recipients")
       .select("id, name, phone, country, created_at")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .then(({ data, error }) => {
         if (error) setError(error.message);
@@ -123,7 +246,7 @@ export default function Dashboard() {
     const fullPhone = SIERRA_LEONE_CODE + phone;
     const { data, error } = await supabase
       .from("recipients")
-      .insert([{ name, phone: fullPhone, country }]) // user_id removed
+      .insert([{ user_id: user.id, name, phone: fullPhone, country }])
       .select();
     if (error) setError(error.message);
     else {
@@ -152,6 +275,8 @@ export default function Dashboard() {
       fee_gbp: fee,
       total_gbp: total,
       recipient_id: selectedRecipient,
+      recipient_phone:
+        recipients.find((r) => r.id === selectedRecipient)?.phone || "",
     });
     setShowPaymentModal(true);
   };
@@ -159,13 +284,9 @@ export default function Dashboard() {
   const handlePaymentSuccess = async () => {
     setPaymentProcessing(true);
     setPaymentError(null);
-    // Ensure Supabase uses the Firebase ID token for RLS
-    await setSupabaseAuthHeader();
-    console.debug("[handlePaymentSuccess] user:", user);
-    console.debug("[handlePaymentSuccess] pendingTransfer:", pendingTransfer);
-    // Actually create the transfer in Supabase
+    // 1. Create the transfer in Supabase
     const transferData = {
-      user_id: user.uid,
+      user_id: user.id,
       recipient_id: pendingTransfer.recipient_id,
       amount_gbp: pendingTransfer.amount_gbp,
       amount_sll: pendingTransfer.amount_sll,
@@ -175,16 +296,38 @@ export default function Dashboard() {
       total_gbp: pendingTransfer.total_gbp,
       status: "in_progress",
     };
-    console.debug("[handlePaymentSuccess] transferData:", transferData);
     const { data, error } = await supabase
       .from("transfers")
       .insert([transferData])
       .select();
-    setPaymentProcessing(false);
+
     if (error) {
+      setPaymentProcessing(false);
       setPaymentError(error.message);
       return;
     }
+
+    // 2. Get recipient details (phone, etc.)
+    const recipient = recipients.find(
+      (r) => r.id === pendingTransfer.recipient_id
+    );
+
+    // 3. Call your backend payout API
+    const payoutRes = await fetch("/api/create-payout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone: recipient.phone, // must be in +232XXXXXXXX format
+        amount: pendingTransfer.amount_sll, // payout in SLL
+        providerCode: "m17", // TODO: set correct provider code if needed
+        financialAccountId: process.env.NEXT_PUBLIC_MONIME_FINANCIAL_ACCOUNT_ID, // set in .env.local
+        monimeSpaceId: process.env.NEXT_PUBLIC_MONIME_SPACE_ID, // set in .env.local
+      }),
+    });
+    const payoutResult = await payoutRes.json();
+    // Optionally, handle payoutResult (log, update transfer, etc.)
+
+    setPaymentProcessing(false);
     setPaymentSuccess(true);
     setShowPaymentModal(false);
     setShowTransferForm(false);
@@ -262,7 +405,7 @@ export default function Dashboard() {
                     Payment Method
                   </label>
                   <div className="flex gap-2">
-                    {Object.keys(paymentFees).map((method) => (
+                    {["card"].map((method) => (
                       <button
                         type="button"
                         key={method}
@@ -274,8 +417,9 @@ export default function Dashboard() {
                         onClick={() =>
                           setPaymentMethod(method as PaymentMethod)
                         }
+                        disabled={method !== "card"}
                       >
-                        {paymentLabels[method as PaymentMethod]}
+                        Card
                       </button>
                     ))}
                   </div>
@@ -295,7 +439,7 @@ export default function Dashboard() {
                       <span className="font-semibold">
                         {amountNum ? `£${fee.toFixed(2)}` : "-"}
                       </span>{" "}
-                      ({(paymentFees[paymentMethod] * 100).toFixed(1)}%)
+                      (5%)
                     </div>
                     <div>
                       Total:{" "}
@@ -433,11 +577,16 @@ export default function Dashboard() {
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent>
           <DialogTitle className="sr-only">Card Payment</DialogTitle>
-          <PaymentForm
-            amount={pendingTransfer?.total_gbp || 0}
-            onSuccess={handlePaymentSuccess}
-            onCancel={() => setShowPaymentModal(false)}
-          />
+          <Elements stripe={stripePromise}>
+            <StripePaymentForm
+              amount={pendingTransfer?.total_gbp || 0}
+              onSuccess={handlePaymentSuccess}
+              onCancel={() => setShowPaymentModal(false)}
+              phoneNumber={pendingTransfer?.recipient_phone || ""}
+              userId={user?.id}
+              pendingTransfer={pendingTransfer}
+            />
+          </Elements>
           {paymentProcessing && (
             <div className="text-blue-700 mt-2">Processing payment...</div>
           )}

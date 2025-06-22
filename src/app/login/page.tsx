@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { signInWithEmail, getCurrentUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 
 export default function Login() {
@@ -16,29 +15,36 @@ export default function Login() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     try {
-      await signInWithEmailAndPassword(auth, form.email, form.password);
+      const { error: signInError } = await signInWithEmail(
+        form.email,
+        form.password
+      );
+      if (signInError) throw signInError;
       setSubmitted(true);
-      console.log("Login successful, redirecting to /dashboard");
-      router.push("/dashboard"); // Redirect to dashboard page after login
-    } catch (err) {
-      setError("Invalid email or password. Please try again.");
+      router.push("/dashboard");
+    } catch (err: any) {
+      // Show full error details for debugging
+      setError(
+        err?.message ||
+          err?.error_description ||
+          JSON.stringify(err) ||
+          "Invalid email or password. Please try again."
+      );
       console.error("Login error:", err);
     }
   };
 
   // Fallback: If already authenticated, redirect to dashboard
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => {
+    getCurrentUser().then((u) => {
       if (u) {
-        console.log("Already authenticated, redirecting to /dashboard");
         router.push("/dashboard");
       }
     });
-    return () => unsub();
   }, [router]);
 
   return (

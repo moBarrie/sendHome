@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/toaster";
 import Header from "@/components/header";
+import FooterYear from "@/components/FooterYear";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -36,7 +37,7 @@ export default function RootLayout({
           <footer className="border-t">
             <div className="container flex flex-col md:flex-row items-center justify-around gap-4 py-10 md:h-24 md:py-0">
               <p className="text-center text-sm leading-loose text-muted-foreground md:text-left">
-                © {new Date().getFullYear()} SendHome. All rights reserved.
+                © <FooterYear /> SendHome. All rights reserved.
               </p>
               <nav className="flex items-center gap-4 md:gap-6">
                 <Link

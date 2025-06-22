@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 
 export default function PaymentsPage() {
   const searchParams = useSearchParams();
-  const transferId = searchParams.get("transfer_id");
+  const transferId = searchParams?.get("transfer_id");
   const [transfer, setTransfer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

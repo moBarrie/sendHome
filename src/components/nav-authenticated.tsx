@@ -4,20 +4,18 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { auth } from "@/lib/firebase";
-import { signOut } from "firebase/auth";
+import { getCurrentUser, signOut } from "@/lib/auth";
 
 export default function NavAuthenticated() {
   const [user, setUser] = useState<any>(null);
   const router = useRouter();
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => setUser(u));
-    return () => unsub();
+    getCurrentUser().then((u) => setUser(u));
   }, []);
 
   const handleLogout = async () => {
-    await signOut(auth);
+    await signOut();
     router.push("/login");
   };
 
