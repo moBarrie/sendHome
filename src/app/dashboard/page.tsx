@@ -1,8 +1,16 @@
 "use client";
 
 import { auth } from "@/lib/firebase";
-import { supabase } from "@/lib/supabase";
+import { supabase, setSupabaseAuthHeader } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { PaymentForm } from "@/components/money-transfer-card";
 import { useEffect, useState } from "react";
 
 export default function Dashboard() {
@@ -20,36 +28,20 @@ export default function Dashboard() {
   const [addingRecipient, setAddingRecipient] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTransferForm, setShowTransferForm] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [pendingTransfer, setPendingTransfer] = useState<any>(null);
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
 
   // Transfer form state
   const [transferAmount, setTransferAmount] = useState("");
   const [selectedRecipient, setSelectedRecipient] = useState("");
   type PaymentMethod = "card" | "mobile" | "bank";
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
-  const [gbpToSll, setGbpToSll] = useState<number | null>(null);
-  const [rateLoading, setRateLoading] = useState(false);
-  const [rateError, setRateError] = useState<string | null>(null);
-
-  // Fetch GBP to SLL rate when form is shown
-  useEffect(() => {
-    if (!showTransferForm) return;
-    setRateLoading(true);
-    setRateError(null);
-    fetch("https://api.exchangerate.host/latest?base=GBP&symbols=SLL")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && data.rates && data.rates.SLL) {
-          setGbpToSll(data.rates.SLL);
-        } else {
-          setRateError("Could not fetch rate");
-        }
-        setRateLoading(false);
-      })
-      .catch(() => {
-        setRateError("Could not fetch rate");
-        setRateLoading(false);
-      });
-  }, [showTransferForm]);
+  const gbpToSll = 28000; // Static fallback rate
+  const rateLoading = false;
+  const rateError = null;
 
   const paymentFees = {
     card: 0.03, // 3%
@@ -68,6 +60,26 @@ export default function Dashboard() {
 
   // Sierra Leone country code
   const SIERRA_LEONE_CODE = "+232";
+
+  // List of Sierra Leone districts
+  const SIERRA_LEONE_DISTRICTS = [
+    "Bo",
+    "Bonthe",
+    "Bombali",
+    "Falaba",
+    "Kailahun",
+    "Kambia",
+    "Karene",
+    "Kenema",
+    "Koinadugu",
+    "Kono",
+    "Moyamba",
+    "Port Loko",
+    "Pujehun",
+    "Tonkolili",
+    "Western Area Rural",
+    "Western Area Urban",
+  ];
 
   useEffect(() => {
     setMounted(true);
@@ -111,7 +123,7 @@ export default function Dashboard() {
     const fullPhone = SIERRA_LEONE_CODE + phone;
     const { data, error } = await supabase
       .from("recipients")
-      .insert([{ name, phone: fullPhone, country, user_id: user.uid }])
+      .insert([{ name, phone: fullPhone, country }]) // user_id removed
       .select();
     if (error) setError(error.message);
     else {
@@ -127,6 +139,57 @@ export default function Dashboard() {
     const { error } = await supabase.from("recipients").delete().eq("id", id);
     if (error) setError(error.message);
     else setRecipients((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  // Save transfer only after payment success
+  const handleTransferContinue = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPendingTransfer({
+      amount_gbp: amountNum,
+      amount_sll: sllAmount,
+      gbp_to_sll_rate: gbpToSll,
+      payment_method: paymentMethod,
+      fee_gbp: fee,
+      total_gbp: total,
+      recipient_id: selectedRecipient,
+    });
+    setShowPaymentModal(true);
+  };
+
+  const handlePaymentSuccess = async () => {
+    setPaymentProcessing(true);
+    setPaymentError(null);
+    // Ensure Supabase uses the Firebase ID token for RLS
+    await setSupabaseAuthHeader();
+    console.debug("[handlePaymentSuccess] user:", user);
+    console.debug("[handlePaymentSuccess] pendingTransfer:", pendingTransfer);
+    // Actually create the transfer in Supabase
+    const transferData = {
+      user_id: user.uid,
+      recipient_id: pendingTransfer.recipient_id,
+      amount_gbp: pendingTransfer.amount_gbp,
+      amount_sll: pendingTransfer.amount_sll,
+      gbp_to_sll_rate: pendingTransfer.gbp_to_sll_rate,
+      payment_method: pendingTransfer.payment_method,
+      fee_gbp: pendingTransfer.fee_gbp,
+      total_gbp: pendingTransfer.total_gbp,
+      status: "in_progress",
+    };
+    console.debug("[handlePaymentSuccess] transferData:", transferData);
+    const { data, error } = await supabase
+      .from("transfers")
+      .insert([transferData])
+      .select();
+    setPaymentProcessing(false);
+    if (error) {
+      setPaymentError(error.message);
+      return;
+    }
+    setPaymentSuccess(true);
+    setShowPaymentModal(false);
+    setShowTransferForm(false);
+    setTransferAmount("");
+    setSelectedRecipient("");
   };
 
   // Only render after auth is checked and mounted
@@ -158,7 +221,10 @@ export default function Dashboard() {
             </Button>
             {showTransferForm && (
               <div className="p-4 rounded-lg border border-blue-100 animate-fadeIn bg-white/10 backdrop-blur-md">
-                <form className="flex flex-col gap-3">
+                <form
+                  className="flex flex-col gap-3"
+                  onSubmit={handleTransferContinue}
+                >
                   <label className="font-semibold text-blue-900">
                     Amount (GBP)
                   </label>
@@ -171,20 +237,12 @@ export default function Dashboard() {
                     onChange={(e) => setTransferAmount(e.target.value)}
                     className="border border-blue-200 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 transition bg-white/60 backdrop-blur-md"
                   />
-                  {rateLoading ? (
-                    <div className="text-blue-700 text-center">
-                      Loading rate...
-                    </div>
-                  ) : rateError ? (
-                    <div className="text-red-500 text-center">{rateError}</div>
-                  ) : gbpToSll ? (
-                    <div className="text-blue-900 text-center text-sm mb-2">
-                      Current rate:{" "}
-                      <span className="font-semibold">
-                        1 GBP = {gbpToSll.toLocaleString()} SLL
-                      </span>
-                    </div>
-                  ) : null}
+                  <div className="text-blue-900 text-center text-sm mb-2">
+                    Using fixed rate:{" "}
+                    <span className="font-semibold">
+                      1 GBP = {gbpToSll.toLocaleString()} SLL
+                    </span>
+                  </div>
                   <label className="font-semibold text-blue-900 mt-2">
                     Recipient
                   </label>
@@ -294,16 +352,21 @@ export default function Dashboard() {
                     maxLength={8}
                   />
                 </div>
-                <input
-                  type="text"
-                  placeholder="Country"
+                <select
                   value={recipientForm.country}
                   onChange={(e) =>
                     setRecipientForm((f) => ({ ...f, country: e.target.value }))
                   }
                   required
                   className="border border-blue-200 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 transition bg-white/60 backdrop-blur-md"
-                />
+                >
+                  <option value="">Select District</option>
+                  {SIERRA_LEONE_DISTRICTS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
                 <Button
                   type="submit"
                   disabled={addingRecipient}
@@ -366,6 +429,23 @@ export default function Dashboard() {
           </section>
         </div>
       </div>
+      {/* Payment Modal */}
+      <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
+        <DialogContent>
+          <DialogTitle className="sr-only">Card Payment</DialogTitle>
+          <PaymentForm
+            amount={pendingTransfer?.total_gbp || 0}
+            onSuccess={handlePaymentSuccess}
+            onCancel={() => setShowPaymentModal(false)}
+          />
+          {paymentProcessing && (
+            <div className="text-blue-700 mt-2">Processing payment...</div>
+          )}
+          {paymentError && (
+            <div className="text-red-600 mt-2">{paymentError}</div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -28,22 +28,23 @@ function PaymentForm({
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setCard({ ...card, [e.target.name]: e.target.value });
-  };
-
+  // Mock card payment: accept any non-empty card details
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setProcessing(true);
     setTimeout(() => {
       if (card.number && card.expiry && card.cvc) {
         setProcessing(false);
-        onSuccess();
+        onSuccess(); // Simulate payment success
       } else {
         setProcessing(false);
         setError("Please fill all card details.");
       }
-    }, 1200);
+    }, 1200); // Simulate network delay
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCard({ ...card, [e.target.name]: e.target.value });
   };
 
   return (
@@ -341,3 +342,5 @@ export function MoneyTransferCard() {
     </Card>
   );
 }
+
+export { PaymentForm };

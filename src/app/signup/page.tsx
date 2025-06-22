@@ -476,17 +476,17 @@ export default function Signup() {
         )}
         {step === 6 && (
           <div className="bg-green-50 border border-green-200 text-green-800 p-8 rounded text-center animate-fadeIn">
-            <span className="text-5xl block mb-4">🎉</span>
-            <h2 className="text-2xl font-bold mb-2">Welcome to SendHome!</h2>
+            <span className="text-3xl block mb-2">✅</span>
+            <h2 className="text-xl font-semibold mb-2">Account Created!</h2>
             <p className="mb-4">
               Your account and first recipient are set up. You can now send
               money home with confidence.
             </p>
             <Link
-              href="/profile"
+              href="/dashboard"
               className="inline-block bg-blue-600 text-white font-semibold py-2 px-6 rounded hover:bg-blue-700 transition"
             >
-              Go to My Profile
+              Go to Dashboard
             </Link>
           </div>
         )}
