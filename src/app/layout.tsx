@@ -3,8 +3,8 @@ import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Canvas Companion",
-  description: "Generate code from a provided image.",
+  title: "New Firebase Studio Project",
+  description: "Ready to build something amazing.",
 };
 
 export default function RootLayout({
