@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "@supabase/auth-helpers-react";
+import dynamic from "next/dynamic";
 import {
   Card,
   CardHeader,
@@ -13,6 +15,11 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { supabase } from "../../lib/supabase";
+
+const KycClientLogic = dynamic(() => import("./KycClientLogic"), {
+  ssr: false,
+});
 
 export default function SendMoney() {
   const [step, setStep] = useState(1);
@@ -27,9 +34,13 @@ export default function SendMoney() {
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
+  const [kycRequired, setKycRequired] = useState(false);
+  const [kycApproved, setKycApproved] = useState(false);
   const router = useRouter();
 
+  const user = useUser();
   const amountNum = parseFloat(amount) || 0;
+
   const fee =
     method === "card"
       ? +(amountNum * 0.03).toFixed(2)
@@ -38,77 +49,121 @@ export default function SendMoney() {
       : 0;
   const total = amountNum + fee;
 
+  // Always require KYC before allowing any transfer creation
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    async function checkKyc() {
+      if (user?.id) {
+        let { data, error } = await supabase
+          .from("profiles")
+          .select("kyc_status")
+          .eq("id", user.id)
+          .single();
+        if (error && error.code === "PGRST116") {
+          await supabase
+            .from("profiles")
+            .insert([{ id: user.id, kyc_status: "pending" }]);
+          data = { kyc_status: "pending" };
+        }
+        const approved = !!(data && data.kyc_status === "approved");
+        setKycApproved(approved);
+        setKycRequired(!approved);
+        if (!approved) {
+          interval = setInterval(async () => {
+            const { data } = await supabase
+              .from("profiles")
+              .select("kyc_status")
+              .eq("id", user.id)
+              .single();
+            const approvedNow = !!(data && data.kyc_status === "approved");
+            setKycApproved(approvedNow);
+            setKycRequired(!approvedNow);
+            if (approvedNow) clearInterval(interval);
+          }, 10000);
+        }
+      } else {
+        setKycRequired(false);
+        setKycApproved(false);
+      }
+    }
+    checkKyc();
+    return () => interval && clearInterval(interval);
+  }, [user?.id]);
+
+  // Block all transfer UI if KYC is not approved
+  if (kycRequired && !kycApproved) {
+    return (
+      <KycClientLogic amount={amount} onContinue={() => setKycApproved(true)} />
+    );
+  }
+
   // Step 1: Amount & Method
   if (step === 1) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
-        <Card className="w-full max-w-md shadow-2xl">
-          <CardHeader>
-            <CardTitle className="text-center text-2xl">Send Money</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div>
-              <Label htmlFor="amount">Amount to Send (GBP)</Label>
-              <Input
-                id="amount"
-                type="number"
-                min="1"
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="Enter amount in GBP"
-                className="text-lg font-semibold"
-              />
-            </div>
-            <div>
-              <Label>Payment Method</Label>
-              <div className="flex gap-4 mt-2">
-                <Button
-                  type="button"
-                  variant={method === "card" ? "default" : "outline"}
-                  onClick={() => setMethod("card")}
-                  className="flex-1"
-                >
-                  Card (3% fee)
-                </Button>
-                <Button
-                  type="button"
-                  variant={method === "bank" ? "default" : "outline"}
-                  onClick={() => setMethod("bank")}
-                  className="flex-1"
-                >
-                  Bank Transfer (£3.50 fee)
-                </Button>
+      <>
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
+          <Card className="w-full max-w-md shadow-2xl">
+            <CardHeader>
+              <CardTitle className="text-center text-2xl">Send Money</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <Label htmlFor="amount">Amount to Send (GBP)</Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="Enter amount in GBP"
+                  className="text-lg font-semibold"
+                />
               </div>
-            </div>
-            <div className="text-sm text-muted-foreground mt-2">
-              Fee: <span className="font-semibold">£{fee.toFixed(2)}</span>{" "}
-              &nbsp;|&nbsp; Total:{" "}
-              <span className="font-semibold">£{total.toFixed(2)}</span>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button
-              className="w-full text-lg py-6"
-              onClick={() => {
-                if (!amount || !method) {
-                  setError(
-                    "Please enter an amount and select a payment method."
-                  );
-                  return;
-                }
-                setError("");
-                setStep(2);
-              }}
-            >
-              Continue
-            </Button>
-          </CardFooter>
-          {error && (
-            <div className="text-red-600 text-sm text-center pb-4">{error}</div>
-          )}
-        </Card>
-      </div>
+              <div>
+                <Label>Payment Method</Label>
+                <div className="flex gap-4 mt-2">
+                  <Button
+                    type="button"
+                    variant={method === "card" ? "default" : "outline"}
+                    onClick={() => setMethod("card")}
+                    className="flex-1"
+                  >
+                    Card (3% fee)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={method === "bank" ? "default" : "outline"}
+                    onClick={() => setMethod("bank")}
+                    className="flex-1"
+                  >
+                    Bank Transfer (£3.50 fee)
+                  </Button>
+                </div>
+              </div>
+              <div className="text-sm text-muted-foreground mt-2">
+                Fee: <span className="font-semibold">£{fee.toFixed(2)}</span>{" "}
+                &nbsp;|&nbsp; Total:{" "}
+                <span className="font-semibold">£{total.toFixed(2)}</span>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button
+                className="w-full text-lg py-6"
+                onClick={() => setStep(2)}
+              >
+                Continue
+              </Button>
+            </CardFooter>
+            {error && (
+              <div className="text-red-600 text-sm text-center pb-4">
+                {error}
+              </div>
+            )}
+          </Card>
+        </div>
+        <KycClientLogic amount={amount} onContinue={() => setStep(2)} />
+      </>
     );
   }
 

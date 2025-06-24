@@ -3,12 +3,12 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2025-05-28.basil',
+  apiVersion: '2024-04-10', // Use a stable version
 });
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // Use the service role key for server-side RLS bypass
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -21,23 +21,66 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
+  const numericAmount = Number(amount);
+  if (isNaN(numericAmount) || numericAmount < 1) {
+    return res.status(400).json({ error: 'Invalid amount' });
+  }
+
   try {
-    // Calculate SendHome fee (5%)
-    const sendHomeFee = Number(amount) * 0.05;
+    // KYC enforcement: block transfers over 300 unless KYC is approved
+    if (numericAmount > 300) {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('kyc_status')
+        .eq('id', userId)
+        .single();
 
-    // Calculate fixed fee (5%)
-    const fixedFee = Number(amount) * 0.05;
-    const totalGbp = Number(amount) + fixedFee;
+      if (profileError) {
+        // Handle the case where no profile exists for the user
+        if (profileError.code === 'PGRST116') {
+          console.log('[KYC] No profile found for user, creating new profile with pending KYC:', userId);
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert({ id: userId, kyc_status: 'pending' });
+          if (insertError) {
+            console.error('[KYC] Failed to create new profile for user:', insertError);
+            return res.status(500).json({ error: 'Failed to create user profile for KYC check. Please try again or contact support.' });
+          }
+          // Always return after creating a pending profile
+          return res.status(403).json({
+            error: 'KYC not completed. Please submit your KYC information to proceed with payments.',
+            kyc_status: 'pending',
+          });
+        }
+        // Unexpected error
+        console.error('[KYC] Unexpected profile fetch error:', profileError, 'userId:', userId);
+        return res.status(500).json({ error: 'Failed to fetch user profile for KYC check. Please try again or contact support.' });
+      }
+      if (!profile || profile.kyc_status !== 'approved') {
+        console.warn('KYC not approved for user:', userId, 'profile:', profile);
+        return res.status(403).json({ error: 'KYC approval required to send more than 300' });
+      }
+    }
 
-    // Stripe expects amount in the smallest currency unit (e.g., pence for GBP)
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(Number(amount) * 100), // GBP to pence
-      currency: 'gbp',
-      payment_method_types: ['card'],
-      metadata: { phoneNumber },
-    });
+    // Calculate fees
+    const sendHomeFee = numericAmount * 0.05;
+    const fixedFee = numericAmount * 0.05;
+    const totalGbp = numericAmount + fixedFee;
 
-    // Use userId from request body (already authenticated on client)
+    // Stripe expects amount in pence
+    let paymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(numericAmount * 100),
+        currency: 'gbp',
+        payment_method_types: ['card'],
+        metadata: { phoneNumber },
+      });
+    } catch (stripeError) {
+      console.error('Stripe paymentIntent error:', stripeError, 'amount:', numericAmount, 'userId:', userId);
+      return res.status(500).json({ error: 'Stripe payment intent failed', details: stripeError });
+    }
+
     // Create a transfer record in Supabase
     const { data, error } = await supabase
       .from('transfers')
@@ -45,27 +88,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         {
           user_id: userId,
           recipient_id: recipientId,
-          amount_gbp: amount,
+          amount_gbp: numericAmount,
           amount_sll: amountSll,
           gbp_to_sll_rate: gbpToSll,
           status: 'pending',
           stripe_payment_intent_id: paymentIntent.id,
           sendhome_fee_gbp: sendHomeFee,
-          stripe_fee_gbp: null, // To be filled in after payment via webhook
+          stripe_fee_gbp: null,
           payment_method: paymentMethod,
-          fee_gbp: fixedFee, // Fixed 5% fee
-          total_gbp: totalGbp, // Amount + fee
+          fee_gbp: fixedFee,
+          total_gbp: totalGbp,
         },
       ])
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase transfer insert error:', error, 'request:', req.body);
+      throw error;
+    }
     const transferId = data.id;
 
     return res.status(200).json({ clientSecret: paymentIntent.client_secret, transferId, paymentIntentId: paymentIntent.id });
   } catch (error: any) {
-    console.error('Stripe error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
+    console.error('Stripe or Supabase error:', error, 'request:', req.body);
+    return res.status(500).json({ error: error.message || 'Internal server error', details: error });
   }
 }
