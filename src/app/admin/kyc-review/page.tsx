@@ -65,84 +65,84 @@ export default function AdminKycReview() {
   if (error) return <div className="p-8 text-red-500">Error: {error}</div>;
 
   return (
-    <div className="max-w-2xl mx-auto p-8">
-      <h1 className="text-2xl font-bold mb-6">Pending KYC Approvals</h1>
+    <div className="w-full max-w-5xl mx-auto p-8">
+      <h1 className="text-3xl font-bold mb-8 text-center">
+        Pending KYC Approvals
+      </h1>
       {profiles.length === 0 ? (
-        <div>No pending KYC requests.</div>
+        <div className="text-center">No pending KYC requests.</div>
       ) : (
-        <ul className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {profiles.map((profile) => (
-            <li
+            <div
               key={profile.id}
-              className="border rounded p-4 flex flex-col gap-2"
+              className="border rounded-lg p-6 flex flex-col gap-4 bg-white shadow-sm"
             >
-              <div>
-                <b>User ID:</b> {profile.id}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                <div>
+                  <b>User ID:</b> {profile.id}
+                </div>
+                <div>
+                  <b>Email:</b> {profile.user_email || "-"}
+                </div>
+                <div>
+                  <b>Status:</b> {profile.kyc_status}
+                </div>
+                {profile.kyc_full_name && (
+                  <div>
+                    <b>Full Name:</b> {profile.kyc_full_name}
+                  </div>
+                )}
+                {profile.kyc_address && (
+                  <div className="sm:col-span-2">
+                    <b>Address:</b> {profile.kyc_address}
+                  </div>
+                )}
+                {profile.kyc_dob && (
+                  <div>
+                    <b>Date of Birth:</b> {profile.kyc_dob}
+                  </div>
+                )}
+                {profile.kyc_id_type && (
+                  <div>
+                    <b>ID Type:</b> {profile.kyc_id_type}
+                  </div>
+                )}
+                {profile.kyc_id_number && (
+                  <div>
+                    <b>ID Number:</b> {profile.kyc_id_number}
+                  </div>
+                )}
+                {profile.kyc_id_expiry && (
+                  <div>
+                    <b>ID Expiry:</b> {profile.kyc_id_expiry}
+                  </div>
+                )}
+                {profile.kyc_document_url && (
+                  <div className="sm:col-span-2">
+                    <a
+                      href={profile.kyc_document_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 underline"
+                    >
+                      View Document
+                    </a>
+                  </div>
+                )}
+                {profile.kyc_id_image_url && (
+                  <div className="sm:col-span-2">
+                    <b>ID Image:</b>
+                    <br />
+                    <img
+                      src={profile.kyc_id_image_url}
+                      alt="ID Document"
+                      className="mt-2 rounded border border-gray-300 max-w-full max-h-60"
+                    />
+                  </div>
+                )}
               </div>
-              <div>
-                <b>Email:</b> {profile.user_email || "-"}
-              </div>
-              <div>
-                <b>Status:</b> {profile.kyc_status}
-              </div>
-              {profile.kyc_full_name && (
-                <div>
-                  <b>Full Name:</b> {profile.kyc_full_name}
-                </div>
-              )}
-              {profile.kyc_address && (
-                <div>
-                  <b>Address:</b> {profile.kyc_address}
-                </div>
-              )}
-              {profile.kyc_dob && (
-                <div>
-                  <b>Date of Birth:</b> {profile.kyc_dob}
-                </div>
-              )}
-              {profile.kyc_id_type && (
-                <div>
-                  <b>ID Type:</b> {profile.kyc_id_type}
-                </div>
-              )}
-              {profile.kyc_id_number && (
-                <div>
-                  <b>ID Number:</b> {profile.kyc_id_number}
-                </div>
-              )}
-              {profile.kyc_id_expiry && (
-                <div>
-                  <b>ID Expiry:</b> {profile.kyc_id_expiry}
-                </div>
-              )}
-              {profile.kyc_document_url && (
-                <a
-                  href={profile.kyc_document_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 underline"
-                >
-                  View Document
-                </a>
-              )}
-              {profile.kyc_id_image_url && (
-                <div>
-                  <b>ID Image:</b>
-                  <br />
-                  <img
-                    src={profile.kyc_id_image_url}
-                    alt="ID Document"
-                    style={{
-                      maxWidth: 320,
-                      maxHeight: 240,
-                      marginTop: 8,
-                      borderRadius: 8,
-                      border: "1px solid #ccc",
-                    }}
-                  />
-                </div>
-              )}
-              <div className="flex gap-2 mt-2">
+              <div className="flex gap-3 mt-4 justify-end">
                 <Button
                   onClick={() => approveKyc(profile.id)}
                   variant="default"
@@ -156,9 +156,9 @@ export default function AdminKycReview() {
                   Reject
                 </Button>
               </div>
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

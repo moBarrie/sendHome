@@ -18,6 +18,7 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import { useEffect, useState } from "react";
+import KycPage from "../kyc/page";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
@@ -162,6 +163,7 @@ export default function Dashboard() {
   const [paymentProcessing, setPaymentProcessing] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [kycStatus, setKycStatus] = useState<string | null>(null);
 
   // Transfer form state
   const [transferAmount, setTransferAmount] = useState("");
@@ -210,6 +212,14 @@ export default function Dashboard() {
     getCurrentUser().then((u) => {
       setUser(u);
       setAuthChecked(true);
+      if (u?.id) {
+        supabase
+          .from("profiles")
+          .select("kyc_status")
+          .eq("id", u.id)
+          .single()
+          .then(({ data }) => setKycStatus(data?.kyc_status || null));
+      }
     });
   }, []);
 
@@ -338,6 +348,9 @@ export default function Dashboard() {
   // Only render after auth is checked and mounted
   if (!mounted || !authChecked) return null;
   if (!user) return null;
+  if (kycStatus !== "approved") {
+    return <KycPage />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-100 via-white to-blue-200 py-4 px-1">
