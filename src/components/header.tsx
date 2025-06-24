@@ -4,7 +4,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import NavAuthenticated from "@/components/nav-authenticated";
 import { useEffect, useState } from "react";
-import { getCurrentUser, supabase as supabaseClient } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
 
 export default function Header() {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | undefined>(undefined);
@@ -12,7 +13,7 @@ export default function Header() {
   useEffect(() => {
     getCurrentUser().then((user) => setIsLoggedIn(!!user));
     // Listen for auth state changes
-    const { data: listener } = supabaseClient.auth.onAuthStateChange(() => {
+    const { data: listener } = supabase.auth.onAuthStateChange(() => {
       getCurrentUser().then((user) => setIsLoggedIn(!!user));
     });
     return () => {

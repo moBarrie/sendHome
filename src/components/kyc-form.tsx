@@ -1,11 +1,16 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useRouter } from "next/navigation";
+
+import { useToast } from "@/hooks/use-toast";
 
 export function KycForm({ onSubmitted }: { onSubmitted?: () => void }) {
+  const router = useRouter();
+  const { toast } = useToast();
   const [file, setFile] = useState<File | null>(null);
   const [firstName, setFirstName] = useState("");
   const [middleName, setMiddleName] = useState("");
@@ -57,46 +62,128 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }) {
       nextStep();
       return;
     }
-    setStatus("Uploading...");
-    setSubmitting(true);
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError || !userData || !userData.user) {
-      setStatus("Not authenticated");
+
+    try {
+      setStatus("Uploading...");
+      setSubmitting(true);
+
+      // Get current user
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser();
+      if (userError || !userData || !userData.user) {
+        throw new Error("Not authenticated");
+      }
+      const userId = userData.user.id;
+
+      // Create a unique filename with timestamp
+      const timestamp = new Date().getTime();
+      const fileExtension = file!.name.split(".").pop();
+      const uniqueFilename = `${userId}_${timestamp}.${fileExtension}`;
+
+      // Upload ID document with unique filename
+      const { data: fileData, error: uploadError } = await supabase.storage
+        .from("kyc-documents")
+        .upload(`${userId}/${uniqueFilename}`, file!);
+
+      if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
+
+      // Format the address
+      const fullAddress = [addressLine1, addressLine2, city, county, postcode]
+        .filter(Boolean)
+        .join(", ");
+
+      // Update profile with KYC information
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          // KYC information
+          kyc_full_name: `${firstName} ${
+            middleName ? middleName + " " : ""
+          }${lastName}`.trim(),
+          kyc_address: fullAddress,
+          kyc_dob: dob,
+          kyc_id_type: idType,
+          kyc_id_number: idNumber,
+          kyc_id_expiry: idExpiry,
+          kyc_id_image_url: `${userId}/${uniqueFilename}`,
+          kyc_status: "pending",
+          kyc_submitted_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      if (updateError) {
+        throw new Error(`Profile update failed: ${updateError.message}`);
+      }
+
+      setStatus("KYC submitted successfully! Redirecting to profile...");
+
+      // Wait a moment to show the success message
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      if (onSubmitted) {
+        onSubmitted();
+      }
+
+      // Redirect to profile page
+      router.push("/profile");
+    } catch (error: any) {
+      setStatus(`Error: ${error.message}`);
       setSubmitting(false);
-      return;
     }
-    const userId = userData.user.id;
-    const { data, error } = await supabase.storage
-      .from("kyc-documents")
-      .upload(`${userId}/${file!.name}`, file!);
-    if (error) {
-      setStatus("Upload failed: " + error.message);
-      setSubmitting(false);
-      return;
-    }
-    const fullAddress = `${addressLine1}${
-      addressLine2 ? ", " + addressLine2 : ""
-    }, ${city}${county ? ", " + county : ""}, ${postcode}`;
-    await supabase
-      .from("profiles")
-      .update({
-        kyc_first_name: firstName,
-        kyc_middle_name: middleName,
-        kyc_last_name: lastName,
-        kyc_address: fullAddress,
-        kyc_dob: dob,
-        kyc_id_type: idType,
-        kyc_id_number: idNumber,
-        kyc_id_expiry: idExpiry,
-        kyc_id_image_url: data?.path,
-        kyc_status: "pending",
-        kyc_submitted_at: new Date().toISOString(),
-      })
-      .eq("id", userId);
-    setStatus("KYC submitted! Awaiting review.");
-    setSubmitting(false);
-    if (onSubmitted) onSubmitted();
   }
+
+  // Subscribe to KYC status changes
+  useEffect(() => {
+    async function setupSubscription() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+
+      const subscription = supabase
+        .channel("kyc-status-changes")
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "profiles",
+            filter: `id=eq.${session.user.id}`,
+          },
+          (payload: any) => {
+            const newStatus = payload.new.kyc_status;
+            const notes = payload.new.kyc_notes;
+
+            if (newStatus === "approved") {
+              toast({
+                title: "KYC Approved! 🎉",
+                description:
+                  "Your identity verification has been approved. You can now make transfers.",
+                variant: "default",
+              });
+              router.push("/dashboard");
+            } else if (newStatus === "rejected") {
+              toast({
+                title: "KYC Rejected",
+                description: notes
+                  ? `Reason: ${notes}`
+                  : "Please review and resubmit your information.",
+                variant: "destructive",
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
+
+    setupSubscription();
+  }, [router, toast]);
 
   return (
     <form
@@ -107,100 +194,232 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }) {
       <h2 className="text-2xl md:text-3xl font-bold text-blue-900 text-center tracking-tight mb-2">
         KYC Verification
       </h2>
-      {/* Rest of your form JSX... */}
-      <div className="flex-1 flex flex-col justify-between">
+      <p className="text-gray-500 text-center mb-8">Step {step} of 5</p>
+
+      <div className="flex-1 flex flex-col gap-3">
         {step === 1 && (
-          <div className="flex flex-col gap-3">
-            <Label htmlFor="kyc-firstname">First Name *</Label>
-            <Input
-              id="kyc-firstname"
-              type="text"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="e.g. Mariama"
-              disabled={submitting}
-              required
-              className="text-sm py-2 px-2"
-            />
-            <Label htmlFor="kyc-middlename">Middle Name</Label>
-            <Input
-              id="kyc-middlename"
-              type="text"
-              value={middleName}
-              onChange={(e) => setMiddleName(e.target.value)}
-              placeholder="(optional)"
-              disabled={submitting}
-              className="text-sm py-2 px-2"
-            />
-            <Label htmlFor="kyc-lastname">Last Name *</Label>
-            <Input
-              id="kyc-lastname"
-              type="text"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              placeholder="e.g. Kamara"
-              disabled={submitting}
-              required
-              className="text-sm py-2 px-2"
-            />
-            <Label htmlFor="kyc-dob">Date of Birth *</Label>
-            <Input
-              id="kyc-dob"
-              type="date"
-              value={dob}
-              onChange={(e) => setDob(e.target.value)}
-              disabled={submitting}
-              required
-              className="text-sm py-2 px-2"
-            />
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="kyc-firstname">First Name *</Label>
+              <Input
+                id="kyc-firstname"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="John"
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kyc-middlename">Middle Name (Optional)</Label>
+              <Input
+                id="kyc-middlename"
+                value={middleName}
+                onChange={(e) => setMiddleName(e.target.value)}
+                placeholder="William"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kyc-lastname">Last Name *</Label>
+              <Input
+                id="kyc-lastname"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Smith"
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kyc-dob">Date of Birth *</Label>
+              <Input
+                id="kyc-dob"
+                type="date"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                required
+                className="mt-1"
+              />
+            </div>
           </div>
         )}
-        {/* Rest of your step components... */}
-      </div>
-      <div className="flex gap-2 mt-6">
-        {step > 1 && (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={prevStep}
-            disabled={submitting}
-          >
-            Back
-          </Button>
+
+        {step === 2 && (
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="kyc-address1">Address Line 1 *</Label>
+              <Input
+                id="kyc-address1"
+                value={addressLine1}
+                onChange={(e) => setAddressLine1(e.target.value)}
+                placeholder="123 Main St"
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kyc-address2">Address Line 2</Label>
+              <Input
+                id="kyc-address2"
+                value={addressLine2}
+                onChange={(e) => setAddressLine2(e.target.value)}
+                placeholder="Apt 4B"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kyc-city">City *</Label>
+              <Input
+                id="kyc-city"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="London"
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kyc-county">County</Label>
+              <Input
+                id="kyc-county"
+                value={county}
+                onChange={(e) => setCounty(e.target.value)}
+                placeholder="Greater London"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kyc-postcode">Postal Code *</Label>
+              <Input
+                id="kyc-postcode"
+                value={postcode}
+                onChange={(e) => setPostcode(e.target.value)}
+                placeholder="SW1A 1AA"
+                required
+                className="mt-1"
+              />
+            </div>
+          </div>
         )}
-        {step < 5 && (
-          <Button
-            type="button"
-            onClick={() => {
-              if (validateStep()) {
-                setStatus("");
-                nextStep();
-              } else {
-                setStatus("Please fill in all required fields for this step.");
-              }
-            }}
-            disabled={submitting}
-          >
-            Next
-          </Button>
+
+        {step === 3 && (
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="kyc-idtype">ID Type *</Label>
+              <Input
+                id="kyc-idtype"
+                value={idType}
+                onChange={(e) => setIdType(e.target.value)}
+                placeholder="Passport"
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kyc-idnumber">ID Number *</Label>
+              <Input
+                id="kyc-idnumber"
+                value={idNumber}
+                onChange={(e) => setIdNumber(e.target.value)}
+                placeholder="123456789"
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kyc-idexpiry">ID Expiry Date *</Label>
+              <Input
+                id="kyc-idexpiry"
+                type="date"
+                value={idExpiry}
+                onChange={(e) => setIdExpiry(e.target.value)}
+                required
+                className="mt-1"
+              />
+            </div>
+          </div>
         )}
+
+        {step === 4 && (
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="kyc-document">Upload ID Document *</Label>
+              <Input
+                id="kyc-document"
+                type="file"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                required
+                className="mt-1"
+                accept="image/*,.pdf"
+              />
+            </div>
+          </div>
+        )}
+
         {step === 5 && (
-          <Button type="submit" className="ml-auto" disabled={submitting}>
-            {submitting ? "Uploading..." : "Submit KYC"}
-          </Button>
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold">Review Your Information</h3>
+            <div className="space-y-2">
+              <p>
+                <strong>Name:</strong> {firstName} {middleName} {lastName}
+              </p>
+              <p>
+                <strong>Date of Birth:</strong> {dob}
+              </p>
+              <p>
+                <strong>Address:</strong> {addressLine1}
+              </p>
+              {addressLine2 && <p>{addressLine2}</p>}
+              <p>
+                {city}, {county}
+              </p>
+              <p>{postcode}</p>
+              <p>
+                <strong>ID Type:</strong> {idType}
+              </p>
+              <p>
+                <strong>ID Number:</strong> {idNumber}
+              </p>
+              <p>
+                <strong>ID Expiry:</strong> {idExpiry}
+              </p>
+              <p>
+                <strong>Document:</strong> {file?.name}
+              </p>
+            </div>
+          </div>
         )}
       </div>
+
       {status && (
         <div
-          className={`text-center text-base mt-4 ${
-            status.includes("fail") || status.includes("not")
-              ? "text-red-600"
-              : "text-green-700"
+          className={`mt-4 p-3 rounded-lg ${
+            status.includes("Error")
+              ? "bg-red-100 text-red-800"
+              : status.includes("success")
+              ? "bg-green-100 text-green-800"
+              : "bg-blue-100 text-blue-800"
           }`}
         >
           {status}
         </div>
       )}
+
+      <div className="flex justify-between mt-6">
+        {step > 1 && (
+          <Button type="button" variant="outline" onClick={prevStep}>
+            Back
+          </Button>
+        )}
+        <Button
+          type="submit"
+          disabled={submitting}
+          className={step > 1 ? "ml-auto" : "w-full"}
+        >
+          {step < 5 ? "Next" : submitting ? "Submitting..." : "Submit KYC"}
+        </Button>
+      </div>
     </form>
   );
 }
