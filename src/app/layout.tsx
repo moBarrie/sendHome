@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/toaster";
 import Header from "@/components/header";
 import FooterYear from "@/components/FooterYear";
+import EnsureProfileRow from "./EnsureProfileRow";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -31,6 +32,7 @@ export default function RootLayout({
         />
       </head>
       <body className="font-body antialiased">
+        <EnsureProfileRow />
         <div className="flex flex-col min-h-screen">
           <Header />
           <main className="flex-1 mt-0">{children}</main>

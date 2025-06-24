@@ -60,7 +60,7 @@ export default function KycClientLogic({
       <div className="bg-white p-8 rounded shadow-xl w-full max-w-md text-center">
         <h2 className="text-xl font-bold mb-4">KYC Required</h2>
         <p className="mb-4">
-          To send £300 or more, you must complete KYC verification.
+          To send money, you must complete KYC verification.
         </p>
         <KycModal open={true} onClose={() => {}} />
         <div className="mt-4 text-sm text-gray-600">

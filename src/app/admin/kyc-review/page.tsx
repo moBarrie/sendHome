@@ -29,9 +29,12 @@ export default function AdminKycReview() {
       }
       setNotAdmin(false);
       setLoading(true);
+      // Query the view that includes user email
       const { data, error } = await supabase
-        .from("profiles")
-        .select("id, email, kyc_status, kyc_document_url")
+        .from("kyc_profiles_with_email")
+        .select(
+          "id, kyc_status, kyc_document_url, kyc_full_name, kyc_address, kyc_dob, kyc_id_type, kyc_id_number, kyc_id_expiry, kyc_id_image_url, user_email"
+        )
         .eq("kyc_status", "pending");
       if (error) setError(error.message);
       else setProfiles(data || []);
@@ -77,11 +80,41 @@ export default function AdminKycReview() {
                 <b>User ID:</b> {profile.id}
               </div>
               <div>
-                <b>Email:</b> {profile.email || "-"}
+                <b>Email:</b> {profile.user_email || "-"}
               </div>
               <div>
                 <b>Status:</b> {profile.kyc_status}
               </div>
+              {profile.kyc_full_name && (
+                <div>
+                  <b>Full Name:</b> {profile.kyc_full_name}
+                </div>
+              )}
+              {profile.kyc_address && (
+                <div>
+                  <b>Address:</b> {profile.kyc_address}
+                </div>
+              )}
+              {profile.kyc_dob && (
+                <div>
+                  <b>Date of Birth:</b> {profile.kyc_dob}
+                </div>
+              )}
+              {profile.kyc_id_type && (
+                <div>
+                  <b>ID Type:</b> {profile.kyc_id_type}
+                </div>
+              )}
+              {profile.kyc_id_number && (
+                <div>
+                  <b>ID Number:</b> {profile.kyc_id_number}
+                </div>
+              )}
+              {profile.kyc_id_expiry && (
+                <div>
+                  <b>ID Expiry:</b> {profile.kyc_id_expiry}
+                </div>
+              )}
               {profile.kyc_document_url && (
                 <a
                   href={profile.kyc_document_url}
@@ -91,6 +124,23 @@ export default function AdminKycReview() {
                 >
                   View Document
                 </a>
+              )}
+              {profile.kyc_id_image_url && (
+                <div>
+                  <b>ID Image:</b>
+                  <br />
+                  <img
+                    src={profile.kyc_id_image_url}
+                    alt="ID Document"
+                    style={{
+                      maxWidth: 320,
+                      maxHeight: 240,
+                      marginTop: 8,
+                      borderRadius: 8,
+                      border: "1px solid #ccc",
+                    }}
+                  />
+                </div>
               )}
               <div className="flex gap-2 mt-2">
                 <Button
