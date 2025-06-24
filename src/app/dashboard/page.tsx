@@ -19,6 +19,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { useEffect, useState } from "react";
 import KycPage from "../kyc/page";
+import { KycStatusCheck } from "@/components/kyc-status-check";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
@@ -348,8 +349,14 @@ export default function Dashboard() {
   // Only render after auth is checked and mounted
   if (!mounted || !authChecked) return null;
   if (!user) return null;
-  if (kycStatus !== "approved") {
-    return <KycPage />;
+  if (!kycStatus) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-100 via-white to-blue-200 py-4 px-1">
+        <div className="max-w-6xl w-full text-center">
+          <KycPage />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -367,14 +374,16 @@ export default function Dashboard() {
             <p className="text-gray-500 mb-3">
               Send money to Sierra Leone quickly and securely.
             </p>
-            <Button
-              className="mb-3 w-full text-base py-2 rounded-lg font-semibold shadow-sm"
-              onClick={() => setShowTransferForm((v) => !v)}
-              variant="default"
-              size="lg"
-            >
-              {showTransferForm ? "Cancel" : "Create Transfer"}
-            </Button>
+            <KycStatusCheck>
+              <Button
+                className="mb-3 w-full text-base py-2 rounded-lg font-semibold shadow-sm"
+                onClick={() => setShowTransferForm((v) => !v)}
+                variant="default"
+                size="lg"
+              >
+                {showTransferForm ? "Cancel" : "Create Transfer"}
+              </Button>
+            </KycStatusCheck>
             {showTransferForm && (
               <div className="p-4 rounded-lg border border-blue-100 animate-fadeIn bg-white/10 backdrop-blur-md">
                 <form
