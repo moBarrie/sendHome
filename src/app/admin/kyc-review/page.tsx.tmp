@@ -1,0 +1,631 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
+  Image as ImageIcon,
+} from "lucide-react";
+import { toast } from "@/hooks/use-toast";
+
+interface KycSubmission {
+  id: string;
+  kyc_full_name: string;
+  kyc_address: string;
+  kyc_dob: string;
+  kyc_id_type: string;
+  kyc_id_number: string;
+  kyc_id_expiry: string;
+  kyc_id_image_url: string;
+  kyc_status: "pending" | "approved" | "rejected";
+  kyc_submitted_at: string;
+  kyc_reviewed_at: string | null;
+  kyc_notes: string | null;
+  email: string;
+}
+
+function formatDate(dateString: string) {
+  if (!dateString) return "N/A";
+  return new Date(dateString).toLocaleString();
+}
+
+function ImagePreview({ imageUrl }: { imageUrl: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setError(null);
+    setLoading(true);
+  }, [imageUrl]);
+
+  if (!imageUrl) {
+    return (
+      <div className="w-full h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+        <div className="text-gray-400 flex flex-col items-center gap-2">
+          <ImageIcon className="w-8 h-8" />
+          <span className="text-sm">No image available</span>
+        </div>
+      </div>
+    );
+  }
+
+  let url: string;
+  try {
+    url = new URL(
+      `/storage/v1/object/public/kyc-documents/${imageUrl}`,
+      process.env.NEXT_PUBLIC_SUPABASE_URL
+    ).toString();
+  } catch (e) {
+    console.error("Invalid image URL:", e);
+    return (
+      <div className="w-full h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+        <div className="text-gray-400 flex flex-col items-center gap-2">
+          <AlertCircle className="w-8 h-8" />
+          <span className="text-sm">Invalid image URL</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="w-full h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+        <div className="text-gray-400 flex flex-col items-center gap-2">
+          <AlertCircle className="w-8 h-8" />
+          <span className="text-sm">{error}</span>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              setError(null);
+              setLoading(true);
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full h-48 bg-gray-100 rounded-lg overflow-hidden">
+      {loading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+          <div className="animate-pulse flex flex-col items-center gap-2">
+            <div className="w-8 h-8 bg-gray-200 rounded-full" />
+            <div className="h-2 w-24 bg-gray-200 rounded" />
+          </div>
+        </div>
+      )}
+      <img
+        src={url}
+        alt="ID Document"
+        className={`w-full h-full object-contain rounded-lg transition-opacity duration-200 ${
+          loading ? 'opacity-0' : 'opacity-100'
+        }`}
+        onError={(e) => {
+          console.error("Image load error:", e);
+          setError("Failed to load image. Click to retry.");
+        }}
+        onLoad={() => setLoading(false)}
+      />
+      {process.env.NODE_ENV === "development" && (
+        <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs p-1 truncate">
+          {url}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function KycReviewPage() {
+  const [submissions, setSubmissions] = useState<KycSubmission[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSubmission, setSelectedSubmission] = useState<KycSubmission | null>(null);
+  const [showDialog, setShowDialog] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [processing, setProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"pending" | "approved" | "rejected">("pending");
+  const [error, setError] = useState<string | null>(null);
+
+  const filteredSubmissions = submissions.filter(
+    (submission) => submission.kyc_status === activeTab
+  );
+
+  useEffect(() => {
+    if (error) {
+      toast({
+        title: "Error",
+        description: error,
+        variant: "destructive",
+      });
+    }
+  }, [error]);
+
+  useEffect(() => {
+    fetchSubmissions().catch((err) => {
+      console.error("Error loading KYC submissions:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to load KYC submissions"
+      );
+      setLoading(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("profile-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "profiles",
+          filter: "kyc_status=neq.null",
+        },
+        (payload) => {
+          console.log("Change received!", payload);
+          fetchSubmissions().catch(console.error);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  async function fetchSubmissions() {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const {
+        data: { session },
+        error: authError,
+      } = await supabase.auth.getSession();
+
+      if (authError) {
+        console.error("Auth error:", authError);
+        throw new Error("Authentication failed - please try logging in again");
+      }
+      if (!session) {
+        throw new Error("No active session - please log in");
+      }
+
+      const userRole = session.user.app_metadata?.role;
+      if (userRole !== "admin") {
+        console.error("User is not an admin:", session.user.id);
+        throw new Error("Only administrators can access this page");
+      }
+
+      console.log("Fetching KYC submissions...");
+      const { data, error } = await supabase
+        .from("profiles")
+        .select(`
+          id,
+          email,
+          kyc_full_name,
+          kyc_address,
+          kyc_dob,
+          kyc_id_type,
+          kyc_id_number,
+          kyc_id_expiry,
+          kyc_id_image_url,
+          kyc_status,
+          kyc_submitted_at,
+          kyc_reviewed_at,
+          kyc_notes
+        `)
+        .not("kyc_status", "is", null)
+        .order("kyc_submitted_at", { ascending: false });
+
+      if (error) {
+        console.error("Database error:", error);
+        throw error;
+      }
+
+      console.log("Received submissions:", data?.length || 0);
+
+      if (!data || data.length === 0) {
+        setSubmissions([]);
+        return;
+      }
+
+      const transformedSubmissions = data.map((item) => ({
+        id: item.id,
+        kyc_full_name: item.kyc_full_name || "",
+        kyc_address: item.kyc_address || "",
+        kyc_dob: item.kyc_dob || "",
+        kyc_id_type: item.kyc_id_type || "",
+        kyc_id_number: item.kyc_id_number || "",
+        kyc_id_expiry: item.kyc_id_expiry || "",
+        kyc_id_image_url: item.kyc_id_image_url || "",
+        kyc_status: (item.kyc_status as KycSubmission["kyc_status"]) || "pending",
+        kyc_submitted_at: item.kyc_submitted_at || "",
+        kyc_reviewed_at: item.kyc_reviewed_at || null,
+        kyc_notes: item.kyc_notes || null,
+        email: item.email || "No email found",
+      }));
+
+      setSubmissions(transformedSubmissions);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleApprove(submission: KycSubmission) {
+    try {
+      setProcessing(true);
+
+      if (!submission.kyc_full_name || !submission.kyc_id_number || !submission.kyc_id_image_url) {
+        throw new Error("Missing required KYC information");
+      }
+
+      const idExpiry = new Date(submission.kyc_id_expiry);
+      if (idExpiry < new Date()) {
+        throw new Error("ID document is expired");
+      }
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          kyc_status: "approved",
+          kyc_reviewed_at: new Date().toISOString(),
+          kyc_notes: "Approved - All documentation valid",
+        })
+        .eq("id", submission.id);
+
+      if (updateError) throw updateError;
+
+      toast({
+        title: "KYC Approved",
+        description: `Successfully approved KYC for ${submission.kyc_full_name}`,
+      });
+
+      await fetchSubmissions();
+      setShowDialog(false);
+    } catch (error) {
+      console.error("Error approving submission:", error);
+      toast({
+        title: "Approval Failed",
+        description: error instanceof Error ? error.message : "Failed to approve KYC submission",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function handleReject(submission: KycSubmission) {
+    const reason = rejectReason.trim();
+    if (!reason) {
+      toast({
+        title: "Validation Error",
+        description: "Please provide a detailed reason for rejection",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (reason.length < 10) {
+      toast({
+        title: "Validation Error",
+        description: "Rejection reason must be at least 10 characters long",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setProcessing(true);
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          kyc_status: "rejected",
+          kyc_reviewed_at: new Date().toISOString(),
+          kyc_notes: reason,
+        })
+        .eq("id", submission.id);
+
+      if (updateError) throw updateError;
+
+      toast({
+        title: "KYC Rejected",
+        description: `KYC for ${submission.kyc_full_name} has been rejected`,
+      });
+
+      await fetchSubmissions();
+      setShowDialog(false);
+      setRejectReason("");
+    } catch (error) {
+      console.error("Error rejecting submission:", error);
+      toast({
+        title: "Rejection Failed",
+        description: error instanceof Error ? error.message : "Failed to reject KYC submission",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 py-8 px-4">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-blue-900 mb-2">KYC Review Dashboard</h1>
+          <p className="text-gray-600">Review and manage KYC submissions</p>
+        </div>
+
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
+          <TabsList className="mb-6">
+            <TabsTrigger value="pending">
+              Pending
+              {submissions.filter((s) => s.kyc_status === "pending").length > 0 && (
+                <Badge variant="destructive" className="ml-2">
+                  {submissions.filter((s) => s.kyc_status === "pending").length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="approved">Approved</TabsTrigger>
+            <TabsTrigger value="rejected">Rejected</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value={activeTab} className="space-y-6">
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-900 mx-auto" />
+                <p className="mt-4 text-gray-600">Loading submissions...</p>
+              </div>
+            ) : filteredSubmissions.length === 0 ? (
+              <Card className="p-12 text-center">
+                <p className="text-gray-500">No {activeTab} submissions found</p>
+              </Card>
+            ) : (
+              filteredSubmissions.map((submission) => (
+                <Card key={submission.id} className="p-6">
+                  <div className="flex flex-col lg:flex-row lg:items-start gap-6">
+                    <div className="flex-grow space-y-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h2 className="text-xl font-semibold text-blue-900">
+                            {submission.kyc_full_name}
+                          </h2>
+                          <p className="text-gray-500">{submission.email}</p>
+                        </div>
+                        <Badge
+                          className={
+                            submission.kyc_status === "approved"
+                              ? "bg-green-100 text-green-800"
+                              : submission.kyc_status === "rejected"
+                              ? "bg-red-100 text-red-800"
+                              : "bg-yellow-100 text-yellow-800"
+                          }
+                        >
+                          {submission.kyc_status.toUpperCase()}
+                        </Badge>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div>
+                          <p className="text-sm text-gray-500">Date of Birth</p>
+                          <p className="font-medium">
+                            {new Date(submission.kyc_dob).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-500">Submitted At</p>
+                          <p className="font-medium">{formatDate(submission.kyc_submitted_at)}</p>
+                        </div>
+                        {submission.kyc_reviewed_at && (
+                          <div>
+                            <p className="text-sm text-gray-500">Reviewed At</p>
+                            <p className="font-medium">{formatDate(submission.kyc_reviewed_at)}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="text-sm text-gray-500">Address</p>
+                        <p className="font-medium whitespace-pre-wrap">{submission.kyc_address}</p>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <p className="text-sm text-gray-500">ID Type</p>
+                            <p className="font-medium capitalize">{submission.kyc_id_type}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-500">ID Number</p>
+                            <p className="font-medium">{submission.kyc_id_number}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-500">ID Expiry</p>
+                            <p className="font-medium">
+                              {new Date(submission.kyc_id_expiry).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+
+                        {submission.kyc_id_image_url && (
+                          <div>
+                            <p className="text-sm text-gray-500 mb-2">ID Document</p>
+                            <ImagePreview imageUrl={submission.kyc_id_image_url} />
+                          </div>
+                        )}
+                      </div>
+
+                      {submission.kyc_notes && (
+                        <div>
+                          <p className="text-sm text-gray-500">Notes</p>
+                          <p className="font-medium">{submission.kyc_notes}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      {submission.kyc_id_image_url && (
+                        <Button
+                          variant="outline"
+                          onClick={() =>
+                            window.open(
+                              `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/kyc-documents/${submission.kyc_id_image_url}`,
+                              "_blank"
+                            )
+                          }
+                          className="w-full"
+                        >
+                          View ID Document
+                        </Button>
+                      )}
+
+                      {submission.kyc_status === "pending" && (
+                        <>
+                          <Button
+                            onClick={() => {
+                              setSelectedSubmission(submission);
+                              setShowDialog(true);
+                            }}
+                            className="w-full bg-green-600 hover:bg-green-700"
+                          >
+                            <CheckCircle2 className="w-4 h-4 mr-2" />
+                            Approve
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            onClick={() => {
+                              setSelectedSubmission(submission);
+                              setShowDialog(true);
+                            }}
+                            className="w-full"
+                          >
+                            <XCircle className="w-4 h-4 mr-2" />
+                            Reject
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              ))
+            )}
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      <Dialog
+        open={showDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRejectReason("");
+          }
+          setShowDialog(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedSubmission?.kyc_full_name} - KYC Review
+              <Badge variant={processing ? "outline" : "default"}>
+                {processing ? "Processing..." : "Pending Review"}
+              </Badge>
+            </DialogTitle>
+            <DialogDescription>
+              Please review the following information carefully before proceeding.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {selectedSubmission && (
+              <>
+                <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Email</p>
+                    <p className="text-gray-900">{selectedSubmission.email}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">ID Document</p>
+                    <p className="text-gray-900">
+                      {selectedSubmission.kyc_id_type} - {selectedSubmission.kyc_id_number}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Expires: {new Date(selectedSubmission.kyc_id_expiry).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Submitted</p>
+                    <p className="text-gray-900">{formatDate(selectedSubmission.kyc_submitted_at)}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <textarea
+                    className="w-full min-h-[100px] p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter detailed reason for rejection (required for rejecting, minimum 10 characters)"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    disabled={processing}
+                  />
+                  <p className="text-sm text-gray-500">
+                    Note: For rejections, please provide specific details about what needs to be corrected or resubmitted.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3 mt-6">
+                  <Button
+                    className="bg-green-600 hover:bg-green-700 text-white w-full"
+                    onClick={() => selectedSubmission && handleApprove(selectedSubmission)}
+                    disabled={processing}
+                  >
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    {processing ? "Processing..." : "Approve KYC"}
+                  </Button>
+
+                  <Button
+                    variant="destructive"
+                    className="w-full"
+                    onClick={() => selectedSubmission && handleReject(selectedSubmission)}
+                    disabled={processing || !rejectReason.trim() || rejectReason.length < 10}
+                  >
+                    <XCircle className="w-4 h-4 mr-2" />
+                    {processing ? "Processing..." : "Reject KYC"}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setShowDialog(false);
+                      setSelectedSubmission(null);
+                      setRejectReason("");
+                    }}
+                    disabled={processing}
+                  >
+                    Cancel Review
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </main>
+  );
+}
