@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRouter } from "next/navigation";
+import { RealtimeChannel } from "@supabase/supabase-js";
 
 import { useToast } from "@/hooks/use-toast";
 
@@ -136,13 +137,15 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }) {
 
   // Subscribe to KYC status changes
   useEffect(() => {
+    let subscription: RealtimeChannel | null = null;
+
     async function setupSubscription() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.user?.id) return;
 
-      const subscription = supabase
+      subscription = supabase
         .channel("kyc-status-changes")
         .on(
           "postgres_changes",
@@ -176,13 +179,15 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }) {
           }
         )
         .subscribe();
-
-      return () => {
-        subscription.unsubscribe();
-      };
     }
 
     setupSubscription();
+
+    return () => {
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
   }, [router, toast]);
 
   return (
