@@ -94,19 +94,15 @@ function StripePaymentForm({
       return;
     }
     if (result.paymentIntent && result.paymentIntent.status === "succeeded") {
-      // 3. Trigger payout
+      // 3. Trigger payout manually (since webhook might not work in test mode)
       const payoutRes = await fetch("/api/trigger-payout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           stripePaymentIntentId: result.paymentIntent.id,
-          transferId,
           recipientPhone: pendingTransfer.recipient_phone,
           amount: pendingTransfer.amount_sll,
-          providerCode: "m17", // or your logic
-          financialAccountId:
-            process.env.NEXT_PUBLIC_MONIME_FINANCIAL_ACCOUNT_ID,
-          monimeSpaceId: process.env.NEXT_PUBLIC_MONIME_SPACE_ID,
+          providerCode: "m17",
         }),
       });
       if (!payoutRes.ok) {
@@ -122,24 +118,76 @@ function StripePaymentForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <CardElement
-        options={{ hidePostalCode: true }}
-        className="p-2 border rounded"
-      />
-      {error && <div className="text-red-600 text-sm">{error}</div>}
-      <Button type="submit" className="w-full" disabled={processing}>
-        {processing ? "Processing..." : `Pay £${amount.toFixed(2)}`}
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="w-full"
-        onClick={onCancel}
-        disabled={processing}
-      >
-        Cancel
-      </Button>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="bg-gray-50 rounded-xl p-4">
+        <label className="block text-sm font-semibold text-gray-700 mb-3">
+          Card Details
+        </label>
+        <div className="bg-white border-2 border-gray-200 rounded-lg p-4 focus-within:border-blue-500 transition-colors">
+          <CardElement
+            options={{
+              hidePostalCode: true,
+              style: {
+                base: {
+                  fontSize: "16px",
+                  color: "#1f2937",
+                  fontFamily: "system-ui, -apple-system, sans-serif",
+                  "::placeholder": {
+                    color: "#9ca3af",
+                  },
+                },
+              },
+            }}
+          />
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="text-red-600 text-sm flex items-center">
+            <svg
+              className="w-4 h-4 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            {error}
+          </div>
+        </div>
+      )}
+
+      <div className="flex space-x-3">
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1 py-3 border-2 border-gray-200 rounded-xl font-semibold hover:bg-gray-50"
+          onClick={onCancel}
+          disabled={processing}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          className="flex-1 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50"
+          disabled={processing || !stripe || !elements}
+        >
+          {processing ? (
+            <div className="flex items-center justify-center">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              Processing...
+            </div>
+          ) : (
+            `Pay £${amount.toFixed(2)}`
+          )}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -295,10 +343,17 @@ export default function Dashboard() {
   const handlePaymentSuccess = async () => {
     setPaymentProcessing(true);
     setPaymentError(null);
+
+    // Get recipient details
+    const recipient = recipients.find(
+      (r) => r.id === pendingTransfer.recipient_id
+    );
+
     // 1. Create the transfer in Supabase
     const transferData = {
       user_id: user.id,
       recipient_id: pendingTransfer.recipient_id,
+      recipient_name: recipient?.name || "Unknown", // Add recipient name
       amount_gbp: pendingTransfer.amount_gbp,
       amount_sll: pendingTransfer.amount_sll,
       gbp_to_sll_rate: pendingTransfer.gbp_to_sll_rate,
@@ -318,25 +373,8 @@ export default function Dashboard() {
       return;
     }
 
-    // 2. Get recipient details (phone, etc.)
-    const recipient = recipients.find(
-      (r) => r.id === pendingTransfer.recipient_id
-    );
-
-    // 3. Call your backend payout API
-    const payoutRes = await fetch("/api/create-payout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        phone: recipient.phone, // must be in +232XXXXXXXX format
-        amount: pendingTransfer.amount_sll, // payout in SLL
-        providerCode: "m17", // TODO: set correct provider code if needed
-        financialAccountId: process.env.NEXT_PUBLIC_MONIME_FINANCIAL_ACCOUNT_ID, // set in .env.local
-        monimeSpaceId: process.env.NEXT_PUBLIC_MONIME_SPACE_ID, // set in .env.local
-      }),
-    });
-    const payoutResult = await payoutRes.json();
-    // Optionally, handle payoutResult (log, update transfer, etc.)
+    // The Stripe webhook will automatically handle the Monime payout
+    console.log("Transfer created successfully:", data);
 
     setPaymentProcessing(false);
     setPaymentSuccess(true);
@@ -360,245 +398,552 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-100 via-white to-blue-200 py-4 px-1">
-      <div className="max-w-6xl w-full text-center">
-        <h1 className="text-2xl font-extrabold mb-6 text-blue-900 tracking-tight">
-          Welcome, {user.displayName || user.email || "User"}!
-        </h1>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 text-left">
-          {/* New Transfer Section */}
-          <section className="flex flex-col rounded-xl shadow-md p-4 transition-transform hover:-translate-y-1 hover:shadow-xl backdrop-blur-md bg-transparent">
-            <h2 className="text-lg font-bold mb-2 text-blue-900">
-              New Transfer
-            </h2>
-            <p className="text-gray-500 mb-3">
-              Send money to Sierra Leone quickly and securely.
-            </p>
-            <KycStatusCheck>
-              <Button
-                className="mb-3 w-full text-base py-2 rounded-lg font-semibold shadow-sm"
-                onClick={() => setShowTransferForm((v) => !v)}
-                variant="default"
-                size="lg"
-              >
-                {showTransferForm ? "Cancel" : "Create Transfer"}
-              </Button>
-            </KycStatusCheck>
-            {showTransferForm && (
-              <div className="p-4 rounded-lg border border-blue-100 animate-fadeIn bg-white/10 backdrop-blur-md">
-                <form
-                  className="flex flex-col gap-3"
-                  onSubmit={handleTransferContinue}
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+      {/* Header */}
+      <div className="bg-white/90 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-10 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center shadow-lg">
+                <svg
+                  className="w-6 h-6 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  <label className="font-semibold text-blue-900">
-                    Amount (GBP)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.01"
-                    placeholder="Enter amount in GBP"
-                    value={transferAmount}
-                    onChange={(e) => setTransferAmount(e.target.value)}
-                    className="border border-blue-200 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 transition bg-white/60 backdrop-blur-md"
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
                   />
-                  <div className="text-blue-900 text-center text-sm mb-2">
-                    Using fixed rate:{" "}
-                    <span className="font-semibold">
-                      1 GBP = {gbpToSll.toLocaleString()} SLL
-                    </span>
-                  </div>
-                  <label className="font-semibold text-blue-900 mt-2">
-                    Recipient
-                  </label>
-                  <select
-                    value={selectedRecipient}
-                    onChange={(e) => setSelectedRecipient(e.target.value)}
-                    className="border border-blue-200 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 transition bg-white/60 backdrop-blur-md"
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                  SendHome
+                </h1>
+                <p className="text-gray-600 text-sm">
+                  Welcome back,{" "}
+                  {user.displayName?.split(" ")[0] ||
+                    user.email?.split("@")[0] ||
+                    "User"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-6">
+              <div className="text-right bg-green-50 px-4 py-2 rounded-xl border border-green-100">
+                <p className="text-xs text-green-600 font-medium">Live Rate</p>
+                <p className="text-sm font-bold text-green-700">
+                  1 GBP = {gbpToSll.toLocaleString()} SLL
+                </p>
+              </div>
+              <div className="w-10 h-10 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-md">
+                {(
+                  user.displayName?.[0] ||
+                  user.email?.[0] ||
+                  "U"
+                ).toUpperCase()}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Quick Actions Card */}
+        <div className="mb-8">
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-8">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg">
+                  <svg
+                    className="w-7 h-7 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                   >
-                    <option value="">Select recipient</option>
-                    {recipients.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name} ({r.phone})
-                      </option>
-                    ))}
-                  </select>
-                  <label className="font-semibold text-blue-900 mt-2">
-                    Payment Method
-                  </label>
-                  <div className="flex gap-2">
-                    {["card"].map((method) => (
-                      <button
-                        type="button"
-                        key={method}
-                        className={`px-3 py-2 rounded-lg border font-semibold transition ${
-                          paymentMethod === method
-                            ? "bg-blue-600 text-white border-blue-600"
-                            : "bg-white/60 text-blue-900 border-blue-200"
-                        }`}
-                        onClick={() =>
-                          setPaymentMethod(method as PaymentMethod)
-                        }
-                        disabled={method !== "card"}
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 10V3L4 14h7v7l9-11h-7z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-1">
+                    Send Money
+                  </h2>
+                  <p className="text-gray-600">
+                    Fast transfers to Sierra Leone
+                  </p>
+                </div>
+              </div>
+              <KycStatusCheck>
+                <Button
+                  className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 text-lg"
+                  onClick={() => setShowTransferForm((v) => !v)}
+                  size="lg"
+                >
+                  {showTransferForm ? (
+                    <div className="flex items-center space-x-2">
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
                       >
-                        Card
-                      </button>
-                    ))}
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                      <span>Cancel</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 4v16m8-8H4"
+                        />
+                      </svg>
+                      <span>New Transfer</span>
+                    </div>
+                  )}
+                </Button>
+              </KycStatusCheck>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Transfer Form - Full Width When Open */}
+          {showTransferForm && (
+            <div className="lg:col-span-2">
+              <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-xl border border-white/30 p-8">
+                <div className="flex items-center mb-8">
+                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mr-4 shadow-lg">
+                    <svg
+                      className="w-6 h-6 text-white"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
+                      />
+                    </svg>
                   </div>
-                  <div className="mt-4 bg-blue-50/60 rounded-lg p-3 text-blue-900">
-                    <div>
-                      Conversion:{" "}
-                      <span className="font-semibold">
-                        {amountNum && gbpToSll
-                          ? `£${amountNum.toFixed(
-                              2
-                            )} = ${sllAmount.toLocaleString()} SLL`
-                          : "-"}
+                  <div>
+                    <h3 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                      New Transfer
+                    </h3>
+                    <p className="text-gray-600">
+                      Send money to Sierra Leone instantly
+                    </p>
+                  </div>
+                </div>
+                <form className="space-y-6" onSubmit={handleTransferContinue}>
+                  {/* Amount Section */}
+                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100 shadow-inner">
+                    <label className="block text-sm font-bold text-gray-700 mb-4 flex items-center">
+                      <svg
+                        className="w-4 h-4 mr-2 text-blue-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
+                        />
+                      </svg>
+                      Send Amount
+                    </label>
+                    <div className="relative mb-4">
+                      <span className="absolute left-5 top-1/2 transform -translate-y-1/2 text-2xl font-bold text-blue-600">
+                        £
                       </span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={transferAmount}
+                        onChange={(e) => setTransferAmount(e.target.value)}
+                        className="w-full pl-12 pr-6 py-5 text-3xl font-bold border-2 border-white rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-400 bg-white shadow-lg transition-all"
+                      />
                     </div>
-                    <div>
-                      Fee:{" "}
-                      <span className="font-semibold">
-                        {amountNum ? `£${fee.toFixed(2)}` : "-"}
-                      </span>{" "}
-                      (5%)
-                    </div>
-                    <div>
-                      Total:{" "}
-                      <span className="font-bold">
-                        {amountNum ? `£${total.toFixed(2)}` : "-"}
-                      </span>
+
+                    {amountNum > 0 && (
+                      <div className="mt-4 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Recipient gets</span>
+                          <span className="font-semibold text-green-600">
+                            {sllAmount.toLocaleString()} SLL
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">
+                            Transfer fee (5%)
+                          </span>
+                          <span className="font-semibold">
+                            £{fee.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="border-t border-gray-300 pt-2">
+                          <div className="flex justify-between text-lg font-bold">
+                            <span>Total to pay</span>
+                            <span className="text-blue-600">
+                              £{total.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Recipient Selection */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-3">
+                      Send to
+                    </label>
+                    <select
+                      value={selectedRecipient}
+                      onChange={(e) => setSelectedRecipient(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
+                    >
+                      <option value="">Choose recipient</option>
+                      {recipients.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name} ({r.phone})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Payment Method */}
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-4 flex items-center">
+                      <svg
+                        className="w-4 h-4 mr-2 text-blue-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                        />
+                      </svg>
+                      Payment Method
+                    </label>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div
+                        className={`p-5 border-2 rounded-2xl cursor-pointer transition-all duration-200 transform hover:-translate-y-1 ${
+                          paymentMethod === "card"
+                            ? "border-blue-500 bg-blue-50 shadow-lg ring-4 ring-blue-100"
+                            : "border-gray-200 bg-white hover:border-gray-300 shadow-md hover:shadow-lg"
+                        }`}
+                        onClick={() => setPaymentMethod("card")}
+                      >
+                        <div className="flex items-center">
+                          <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center mr-4 shadow-lg">
+                            <svg
+                              className="w-6 h-6 text-white"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                              />
+                            </svg>
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-bold text-gray-900 text-lg">
+                              Debit/Credit Card
+                            </h4>
+                            <p className="text-sm text-gray-600">
+                              Instant transfer • Secure payment
+                            </p>
+                          </div>
+                          {paymentMethod === "card" && (
+                            <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                              <svg
+                                className="w-3 h-3 text-white"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={3}
+                                  d="M5 13l4 4L19 7"
+                                />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
+
                   <Button
                     type="submit"
-                    className="w-full mt-2"
+                    className="w-full py-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 text-lg"
                     disabled={!amountNum || !selectedRecipient || !gbpToSll}
                   >
-                    Continue
+                    <div className="flex items-center justify-center space-x-2">
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13 10V3L4 14h7v7l9-11h-7z"
+                        />
+                      </svg>
+                      <span>Continue to Payment</span>
+                    </div>
                   </Button>
                 </form>
               </div>
-            )}
-          </section>
-          {/* Recipients Section */}
-          <section className="flex flex-col rounded-xl shadow-md p-4 transition-transform hover:-translate-y-1 hover:shadow-xl backdrop-blur-md bg-transparent">
-            <h2 className="text-lg font-bold mb-2 text-blue-900">Recipients</h2>
-            <p className="text-gray-500 mb-3">Add or manage your recipients.</p>
-            <div className="p-4 rounded-lg border border-blue-100 bg-white/10 backdrop-blur-md">
-              <form
-                onSubmit={handleAddRecipient}
-                className="flex flex-col gap-3 mb-4"
-              >
-                <input
-                  type="text"
-                  placeholder="Full Name"
-                  value={recipientForm.name}
-                  onChange={(e) =>
-                    setRecipientForm((f) => ({ ...f, name: e.target.value }))
-                  }
-                  required
-                  className="border border-blue-200 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 transition bg-white/60 backdrop-blur-md"
-                />
-                <div className="flex items-center">
-                  <span className="px-3 py-2 bg-blue-100 text-blue-900 rounded-l-lg border border-blue-200 border-r-0 text-base select-none">
-                    {SIERRA_LEONE_CODE}
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="Phone Number"
-                    value={recipientForm.phone}
-                    onChange={(e) => {
-                      // Only allow digits
-                      const val = e.target.value.replace(/\D/g, "");
-                      setRecipientForm((f) => ({ ...f, phone: val }));
-                    }}
-                    required
-                    className="border border-blue-200 rounded-r-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 transition bg-white/60 backdrop-blur-md w-full"
-                    maxLength={8}
-                  />
-                </div>
-                <select
-                  value={recipientForm.country}
-                  onChange={(e) =>
-                    setRecipientForm((f) => ({ ...f, country: e.target.value }))
-                  }
-                  required
-                  className="border border-blue-200 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 transition bg-white/60 backdrop-blur-md"
-                >
-                  <option value="">Select District</option>
-                  {SIERRA_LEONE_DISTRICTS.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  type="submit"
-                  disabled={addingRecipient}
-                  className="w-full text-base py-2 rounded-lg font-semibold shadow-sm"
-                >
-                  {addingRecipient ? "Adding..." : "Add Recipient"}
-                </Button>
-              </form>
-              {error && (
-                <div className="text-red-500 mb-2 text-center">{error}</div>
-              )}
-              {loadingRecipients ? (
-                <div className="text-blue-700 text-center">
-                  Loading recipients...
-                </div>
-              ) : recipients.length === 0 ? (
-                <div className="text-gray-400 text-center">
-                  No recipients yet.
-                </div>
-              ) : (
-                <ul className="space-y-2">
-                  {recipients.map((r) => (
-                    <li
-                      key={r.id}
-                      className="flex items-center justify-between rounded-lg p-2 shadow border border-blue-100 bg-white/60 backdrop-blur-md"
-                    >
-                      <div>
-                        <div className="font-semibold text-blue-900">
-                          {r.name}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {r.phone} &middot; {r.country}
-                        </div>
-                      </div>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="rounded px-3 py-1.5"
-                        onClick={() => handleDeleteRecipient(r.id)}
-                      >
-                        Delete
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
-          </section>
-          {/* Past Transfers Section */}
-          <section className="flex flex-col rounded-xl shadow-md p-4 transition-transform hover:-translate-y-1 hover:shadow-xl backdrop-blur-md bg-transparent">
-            <h2 className="text-lg font-bold mb-2 text-blue-900">
-              Past Transfers
-            </h2>
-            <p className="text-gray-500 mb-3">View your transfer history.</p>
-            <div className="p-4 rounded-lg border border-blue-100 bg-white/10 backdrop-blur-md">
-              <div className="text-gray-400 text-center">
-                [Transfer history will go here]
+          )}
+
+          {/* Recipients Sidebar */}
+          <div className={showTransferForm ? "lg:col-span-1" : "lg:col-span-3"}>
+            <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6">
+              <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+                <svg
+                  className="w-5 h-5 mr-2 text-blue-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                  />
+                </svg>
+                Recipients
+              </h3>
+
+              {/* Add New Recipient Form */}
+              <div className="bg-gray-50 rounded-xl p-4 mb-6">
+                <h4 className="font-semibold text-gray-900 mb-4">
+                  Add New Recipient
+                </h4>
+                <form onSubmit={handleAddRecipient} className="space-y-4">
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="Full Name"
+                      value={recipientForm.name}
+                      onChange={(e) =>
+                        setRecipientForm((f) => ({
+                          ...f,
+                          name: e.target.value,
+                        }))
+                      }
+                      required
+                      className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex rounded-lg border border-gray-200 bg-white">
+                      <span className="px-4 py-3 bg-gray-100 text-gray-700 border-r border-gray-200 font-medium">
+                        {SIERRA_LEONE_CODE}
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Phone Number"
+                        value={recipientForm.phone}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, "");
+                          setRecipientForm((f) => ({ ...f, phone: val }));
+                        }}
+                        required
+                        className="flex-1 px-4 py-3 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        maxLength={8}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <select
+                      value={recipientForm.country}
+                      onChange={(e) =>
+                        setRecipientForm((f) => ({
+                          ...f,
+                          country: e.target.value,
+                        }))
+                      }
+                      required
+                      className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                    >
+                      <option value="">Select District</option>
+                      {SIERRA_LEONE_DISTRICTS.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={addingRecipient}
+                    className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200"
+                  >
+                    {addingRecipient ? "Adding..." : "Add Recipient"}
+                  </Button>
+                </form>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                  <div className="text-red-600 text-sm">{error}</div>
+                </div>
+              )}
+
+              {/* Recipients List */}
+              <div>
+                <h4 className="font-semibold text-gray-900 mb-4">
+                  Your Recipients
+                </h4>
+                {loadingRecipients ? (
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : recipients.length === 0 ? (
+                  <div className="text-center py-8">
+                    <svg
+                      className="w-12 h-12 text-gray-400 mx-auto mb-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                      />
+                    </svg>
+                    <p className="text-gray-500">No recipients yet</p>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Add your first recipient above
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {recipients.map((r) => (
+                      <div
+                        key={r.id}
+                        className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors"
+                      >
+                        <div className="flex items-center">
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-semibold mr-3">
+                            {r.name[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <h5 className="font-semibold text-gray-900">
+                              {r.name}
+                            </h5>
+                            <p className="text-sm text-gray-600">{r.phone}</p>
+                            <p className="text-xs text-gray-500">{r.country}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeleteRecipient(r.id)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
-          </section>
+          </div>
         </div>
       </div>
+
       {/* Payment Modal */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
-        <DialogContent>
-          <DialogTitle className="sr-only">Card Payment</DialogTitle>
+        <DialogContent className="sm:max-w-md">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg
+                className="w-8 h-8 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                />
+              </svg>
+            </div>
+            <DialogTitle className="text-2xl font-bold text-gray-900 mb-2">
+              Secure Payment
+            </DialogTitle>
+            <p className="text-gray-600">
+              Complete your transfer with card payment
+            </p>
+          </div>
+
+          <div className="bg-gray-50 rounded-xl p-4 mb-6">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-gray-600">Amount to pay</span>
+              <span className="text-2xl font-bold text-gray-900">
+                £{pendingTransfer?.total_gbp?.toFixed(2) || "0.00"}
+              </span>
+            </div>
+            <div className="text-sm text-gray-500">
+              Recipient will receive{" "}
+              {pendingTransfer?.amount_sll?.toLocaleString() || "0"} SLL
+            </div>
+          </div>
+
           <Elements stripe={stripePromise}>
             <StripePaymentForm
               amount={pendingTransfer?.total_gbp || 0}
@@ -609,14 +954,55 @@ export default function Dashboard() {
               pendingTransfer={pendingTransfer}
             />
           </Elements>
+
           {paymentProcessing && (
-            <div className="text-blue-700 mt-2">Processing payment...</div>
+            <div className="flex items-center justify-center py-4">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mr-2"></div>
+              <span className="text-blue-700">Processing payment...</span>
+            </div>
           )}
           {paymentError && (
-            <div className="text-red-600 mt-2">{paymentError}</div>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mt-4">
+              <div className="text-red-600 text-sm">{paymentError}</div>
+            </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Success Modal */}
+      {paymentSuccess && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md mx-4 text-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg
+                className="w-8 h-8 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-2">
+              Transfer Successful!
+            </h3>
+            <p className="text-gray-600 mb-6">
+              Your money is on its way to the recipient
+            </p>
+            <Button
+              onClick={() => setPaymentSuccess(false)}
+              className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl"
+            >
+              Continue
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

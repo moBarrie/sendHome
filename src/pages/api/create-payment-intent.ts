@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2024-04-10', // Use a stable version
+  apiVersion: '2025-05-28.basil',
 });
 
 const supabase = createClient(
@@ -67,6 +67,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const fixedFee = numericAmount * 0.05;
     const totalGbp = numericAmount + fixedFee;
 
+    // Get recipient details if recipientId is provided
+    let recipientName = 'Recipient';
+    let recipientPhone = phoneNumber;
+    
+    if (recipientId) {
+      const { data: recipientData } = await supabase
+        .from('recipients')
+        .select('name, phone')
+        .eq('id', recipientId)
+        .single();
+      
+      if (recipientData) {
+        recipientName = recipientData.name;
+        recipientPhone = recipientData.phone;
+      }
+    }
+
     // Stripe expects amount in pence
     let paymentIntent;
     try {
@@ -88,16 +105,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         {
           user_id: userId,
           recipient_id: recipientId,
+          recipient_name: recipientName,
+          recipient_phone: recipientPhone,
+          amount: numericAmount,
           amount_gbp: numericAmount,
           amount_sll: amountSll,
           gbp_to_sll_rate: gbpToSll,
           status: 'pending',
           stripe_payment_intent_id: paymentIntent.id,
           sendhome_fee_gbp: sendHomeFee,
-          stripe_fee_gbp: null,
           payment_method: paymentMethod,
           fee_gbp: fixedFee,
           total_gbp: totalGbp,
+          currency: 'GBP',
         },
       ])
       .select()

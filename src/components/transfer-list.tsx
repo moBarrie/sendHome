@@ -21,6 +21,9 @@ export function TransferList() {
   const [transfers, setTransfers] = useState<Transfer[]>([]);
 
   useEffect(() => {
+    let isMounted = true;
+    let subscription: any = null;
+
     // Fetch initial transfers
     async function fetchTransfers() {
       const { data, error } = await supabase
@@ -33,39 +36,56 @@ export function TransferList() {
         return;
       }
 
-      setTransfers(data);
+      if (isMounted) {
+        setTransfers(data);
+      }
     }
 
-    fetchTransfers();
+    async function setupSubscription() {
+      await fetchTransfers();
 
-    // Subscribe to changes
-    const subscription = supabase
-      .channel("transfers-channel")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "transfers",
-        },
-        (payload) => {
-          if (payload.eventType === "INSERT") {
-            setTransfers((current) => [payload.new as Transfer, ...current]);
-          } else if (payload.eventType === "UPDATE") {
-            setTransfers((current) =>
-              current.map((transfer) =>
-                transfer.id === payload.new.id
-                  ? (payload.new as Transfer)
-                  : transfer
-              )
-            );
+      if (!isMounted) return;
+
+      // Create a unique channel name to avoid conflicts
+      const channelName = `transfers-list-${Math.random()
+        .toString(36)
+        .substring(7)}`;
+
+      subscription = supabase
+        .channel(channelName)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "transfers",
+          },
+          (payload) => {
+            if (!isMounted) return;
+
+            if (payload.eventType === "INSERT") {
+              setTransfers((current) => [payload.new as Transfer, ...current]);
+            } else if (payload.eventType === "UPDATE") {
+              setTransfers((current) =>
+                current.map((transfer) =>
+                  transfer.id === payload.new.id
+                    ? (payload.new as Transfer)
+                    : transfer
+                )
+              );
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    }
+
+    setupSubscription();
 
     return () => {
-      subscription.unsubscribe();
+      isMounted = false;
+      if (subscription) {
+        subscription.unsubscribe();
+      }
     };
   }, []);
 

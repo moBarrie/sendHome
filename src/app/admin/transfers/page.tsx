@@ -30,6 +30,9 @@ export default function AdminTransfersPage() {
   const { toast } = useToast();
 
   useEffect(() => {
+    let isMounted = true;
+    let subscription: any = null;
+
     // Fetch initial transfers with user profile info
     async function fetchTransfers() {
       const { data, error } = await supabase
@@ -42,53 +45,70 @@ export default function AdminTransfersPage() {
         return;
       }
 
-      setTransfers(data);
+      if (isMounted) {
+        setTransfers(data);
+      }
     }
 
-    fetchTransfers();
+    async function setupSubscription() {
+      await fetchTransfers();
 
-    // Subscribe to changes
-    const subscription = supabase
-      .channel("admin-transfers")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "transfers",
-        },
-        async (payload: any) => {
-          // Fetch the full transfer record with profile info
-          const { data, error } = await supabase
-            .from("transfers")
-            .select("*, profiles(email, full_name)")
-            .eq("id", payload.new.id)
-            .single();
+      if (!isMounted) return;
 
-          if (error) {
-            console.error("Error fetching updated transfer:", error);
-            return;
+      // Create a unique channel name to avoid conflicts
+      const channelName = `admin-transfers-${Math.random()
+        .toString(36)
+        .substring(7)}`;
+
+      subscription = supabase
+        .channel(channelName)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "transfers",
+          },
+          async (payload: any) => {
+            if (!isMounted) return;
+
+            // Fetch the full transfer record with profile info
+            const { data, error } = await supabase
+              .from("transfers")
+              .select("*, profiles(email, full_name)")
+              .eq("id", payload.new.id)
+              .single();
+
+            if (error) {
+              console.error("Error fetching updated transfer:", error);
+              return;
+            }
+
+            if (payload.eventType === "INSERT") {
+              setTransfers((current) => [data, ...current]);
+              toast({
+                title: "New Transfer",
+                description: `New transfer of ${data.amount} ${data.currency} to ${data.recipient_name}`,
+              });
+            } else if (payload.eventType === "UPDATE") {
+              setTransfers((current) =>
+                current.map((transfer) =>
+                  transfer.id === data.id ? data : transfer
+                )
+              );
+            }
           }
+        )
+        .subscribe();
+    }
 
-          if (payload.eventType === "INSERT") {
-            setTransfers((current) => [data, ...current]);
-            toast({
-              title: "New Transfer",
-              description: `New transfer of ${data.amount} ${data.currency} to ${data.recipient_name}`,
-            });
-          } else if (payload.eventType === "UPDATE") {
-            setTransfers((current) =>
-              current.map((transfer) =>
-                transfer.id === data.id ? data : transfer
-              )
-            );
-          }
-        }
-      )
-      .subscribe();
+    setupSubscription();
 
     return () => {
-      subscription.unsubscribe();
+      isMounted = false;
+      if (subscription) {
+        subscription.unsubscribe();
+      }
     };
   }, [toast]);
 

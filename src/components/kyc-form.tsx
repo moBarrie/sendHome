@@ -137,16 +137,22 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }) {
 
   // Subscribe to KYC status changes
   useEffect(() => {
+    let isMounted = true;
     let subscription: RealtimeChannel | null = null;
 
     async function setupSubscription() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      if (!session?.user?.id) return;
+      if (!session?.user?.id || !isMounted) return;
+
+      // Create a unique channel name to avoid conflicts
+      const channelName = `kyc-status-${session.user.id}-${Math.random()
+        .toString(36)
+        .substring(7)}`;
 
       subscription = supabase
-        .channel("kyc-status-changes")
+        .channel(channelName)
         .on(
           "postgres_changes",
           {
@@ -156,6 +162,8 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }) {
             filter: `id=eq.${session.user.id}`,
           },
           (payload: any) => {
+            if (!isMounted) return;
+
             const newStatus = payload.new.kyc_status;
             const notes = payload.new.kyc_notes;
 
@@ -184,6 +192,7 @@ export function KycForm({ onSubmitted }: { onSubmitted?: () => void }) {
     setupSubscription();
 
     return () => {
+      isMounted = false;
       if (subscription) {
         subscription.unsubscribe();
       }

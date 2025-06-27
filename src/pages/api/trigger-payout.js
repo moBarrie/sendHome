@@ -33,11 +33,13 @@ export default async function handler(req, res) {
   }
 
   // 2. Call Monime payout API
-  const accessToken = process.env.MONIME_ACCESS_TOKEN;
   const payload = {
-    amount: { value: amount }, // Remove currency field
+    amount: {
+      currency: "SLE", // Use SLE (new Sierra Leone Leone code) instead of SLL
+      value: amount,
+    },
     destination: { providerCode, accountId: recipientPhone },
-    source: { financialAccountId },
+    // Remove source field - Monime will use default financial account
     metadata: { stripePaymentIntentId },
   };
 
@@ -46,7 +48,7 @@ export default async function handler(req, res) {
   const response = await fetch("https://api.monime.io/payouts", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${process.env.MONIME_API_KEY}`,
       "Content-Type": "application/json",
       "Idempotency-Key": uuidv4(),
       "Monime-Space-Id": process.env.MONIME_SPACE_ID,

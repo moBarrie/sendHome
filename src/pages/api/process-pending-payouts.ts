@@ -7,20 +7,42 @@ const supabase = createClient(
 );
 
 async function payoutWithMonime(phone: string, amount: number) {
-  // Replace with your Monime API endpoint and auth
-  const res = await fetch(process.env.MONIME_API_URL!, {
+  // Generate a unique idempotency key for this request
+  const idempotencyKey = `pending-${phone}-${amount}-${Date.now()}`;
+  
+  const payoutPayload = {
+    amount: { 
+      currency: 'SLE', // Use SLE (new Sierra Leone Leone code) instead of SLL
+      value: Math.round(amount) // Ensure it's an integer
+    },
+    destination: { 
+      providerCode: 'm17', // Default provider code for Sierra Leone
+      accountId: phone 
+    },
+    // Remove source field - Monime will use default financial account
+    metadata: { 
+      source: 'sendHome-pending-processing',
+      processedAt: new Date().toISOString()
+    }
+  };
+  
+  console.log('Monime payout payload:', payoutPayload);
+  
+  const res = await fetch('https://api.monime.io/payouts', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${process.env.MONIME_API_KEY}`,
+      'Monime-Space-Id': process.env.MONIME_SPACE_ID!,
+      'Idempotency-Key': idempotencyKey,
     },
-    body: JSON.stringify({
-      phone,
-      amount,
-      currency: 'SLL',
-    }),
+    body: JSON.stringify(payoutPayload),
   });
-  return res.json();
+  
+  const result = await res.json();
+  console.log('Monime API response:', result);
+  
+  return result;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
