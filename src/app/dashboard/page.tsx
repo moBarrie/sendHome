@@ -20,6 +20,9 @@ import {
 import { useEffect, useState } from "react";
 import KycPage from "../kyc/page";
 import { KycStatusCheck } from "@/components/kyc-status-check";
+import { TransferList } from "@/components/transfer-list";
+import { useExchangeRate } from "@/hooks/use-exchange-rate";
+import { validateSierraLeonePhone } from "@/lib/sierra-leone-networks.js";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
@@ -95,6 +98,7 @@ function StripePaymentForm({
     }
     if (result.paymentIntent && result.paymentIntent.status === "succeeded") {
       // 3. Trigger payout manually (since webhook might not work in test mode)
+      console.log("💳 Payment successful, triggering payout...");
       const payoutRes = await fetch("/api/trigger-payout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -105,11 +109,22 @@ function StripePaymentForm({
           providerCode: "m17",
         }),
       });
+
+      const payoutResult = await payoutRes.json();
+      console.log("🎯 Payout response:", payoutResult);
+
       if (!payoutRes.ok) {
-        setError("Payment succeeded but payout failed.");
+        console.error("❌ Payout failed:", payoutResult);
+        setError(
+          `Payment succeeded but payout failed: ${
+            payoutResult.error || "Unknown error"
+          }`
+        );
         setProcessing(false);
         return;
       }
+
+      console.log("✅ Payout triggered successfully!");
       onSuccess();
     } else {
       setError("Payment not successful.");
@@ -206,6 +221,7 @@ export default function Dashboard() {
   });
   const [addingRecipient, setAddingRecipient] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phoneValidation, setPhoneValidation] = useState<any>(null);
   const [showTransferForm, setShowTransferForm] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [pendingTransfer, setPendingTransfer] = useState<any>(null);
@@ -219,16 +235,25 @@ export default function Dashboard() {
   const [selectedRecipient, setSelectedRecipient] = useState("");
   type PaymentMethod = "card" | "mobile" | "bank";
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
-  const gbpToSll = 28000; // Static fallback rate
-  const rateLoading = false;
-  const rateError = null;
+
+  // Use real-time exchange rate
+  const {
+    rate: gbpToSll,
+    loading: rateLoading,
+    error: rateError,
+    source: rateSource,
+    lastUpdated: rateLastUpdated,
+    refresh: refreshRate,
+  } = useExchangeRate();
 
   // Use a fixed 5% fee for all payment methods
   const FEE_PERCENT = 0.05;
   const amountNum = parseFloat(transferAmount) || 0;
   const fee = amountNum * FEE_PERCENT;
   const total = amountNum + fee;
-  const sllAmount = gbpToSll ? amountNum * gbpToSll : 0;
+  // Convert rate from integer to decimal (rate comes as integer * 1000)
+  const actualRate = gbpToSll / 1000;
+  const sllAmount = actualRate ? amountNum * actualRate : 0;
 
   // Sierra Leone country code
   const SIERRA_LEONE_CODE = "+232";
@@ -329,7 +354,7 @@ export default function Dashboard() {
     setPendingTransfer({
       amount_gbp: amountNum,
       amount_sll: sllAmount,
-      gbp_to_sll_rate: gbpToSll,
+      gbp_to_sll_rate: actualRate, // Use the actual decimal rate
       payment_method: paymentMethod,
       fee_gbp: fee,
       total_gbp: total,
@@ -340,43 +365,11 @@ export default function Dashboard() {
     setShowPaymentModal(true);
   };
 
-  const handlePaymentSuccess = async () => {
-    setPaymentProcessing(true);
-    setPaymentError(null);
+  const handlePaymentSuccess = () => {
+    // Transfer record is already created by the create-payment-intent API
+    // No need to create it again here
+    console.log("Payment successful! Transfer record already created.");
 
-    // Get recipient details
-    const recipient = recipients.find(
-      (r) => r.id === pendingTransfer.recipient_id
-    );
-
-    // 1. Create the transfer in Supabase
-    const transferData = {
-      user_id: user.id,
-      recipient_id: pendingTransfer.recipient_id,
-      recipient_name: recipient?.name || "Unknown", // Add recipient name
-      amount_gbp: pendingTransfer.amount_gbp,
-      amount_sll: pendingTransfer.amount_sll,
-      gbp_to_sll_rate: pendingTransfer.gbp_to_sll_rate,
-      payment_method: pendingTransfer.payment_method,
-      fee_gbp: pendingTransfer.fee_gbp,
-      total_gbp: pendingTransfer.total_gbp,
-      status: "in_progress",
-    };
-    const { data, error } = await supabase
-      .from("transfers")
-      .insert([transferData])
-      .select();
-
-    if (error) {
-      setPaymentProcessing(false);
-      setPaymentError(error.message);
-      return;
-    }
-
-    // The Stripe webhook will automatically handle the Monime payout
-    console.log("Transfer created successfully:", data);
-
-    setPaymentProcessing(false);
     setPaymentSuccess(true);
     setShowPaymentModal(false);
     setShowTransferForm(false);
@@ -432,11 +425,45 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="flex items-center space-x-6">
-              <div className="text-right bg-green-50 px-4 py-2 rounded-xl border border-green-100">
-                <p className="text-xs text-green-600 font-medium">Live Rate</p>
+              <div className="text-right bg-green-50 px-4 py-2 rounded-xl border border-green-100 relative">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs text-green-600 font-medium">
+                    Live Rate
+                  </p>
+                  <button
+                    onClick={refreshRate}
+                    disabled={rateLoading}
+                    className="text-xs text-green-600 hover:text-green-700 transition-colors disabled:opacity-50"
+                    title="Refresh rate"
+                  >
+                    <svg
+                      className={`w-3 h-3 ${rateLoading ? "animate-spin" : ""}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                  </button>
+                </div>
                 <p className="text-sm font-bold text-green-700">
-                  1 GBP = {gbpToSll.toLocaleString()} SLL
+                  1 GBP = {actualRate.toFixed(3)} SLE
                 </p>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-xs text-green-500">
+                    {rateSource === "xe_api" ? "XE API" : "Fallback"}
+                  </p>
+                  {rateError && (
+                    <span className="text-xs text-orange-500" title={rateError}>
+                      ⚠️
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="w-10 h-10 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-md">
                 {(
@@ -597,8 +624,15 @@ export default function Dashboard() {
                       <div className="mt-4 space-y-2">
                         <div className="flex justify-between text-sm">
                           <span className="text-gray-600">Recipient gets</span>
-                          <span className="font-semibold text-green-600">
-                            {sllAmount.toLocaleString()} SLL
+                          <span className="font-semibold text-green-600 flex items-center">
+                            {rateLoading ? (
+                              <div className="flex items-center">
+                                <div className="animate-spin rounded-full h-3 w-3 border-b border-green-600 mr-2"></div>
+                                Calculating...
+                              </div>
+                            ) : (
+                              `${sllAmount.toLocaleString()} SLE`
+                            )}
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">
@@ -620,6 +654,27 @@ export default function Dashboard() {
                       </div>
                     )}
                   </div>
+
+                  {rateError && (
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                      <div className="text-orange-600 text-sm flex items-center">
+                        <svg
+                          className="w-4 h-4 mr-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.268 16.5c-.77.833.192 2.5 1.732 2.5z"
+                          />
+                        </svg>
+                        Using fallback exchange rate. {rateError}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Recipient Selection */}
                   <div>
@@ -716,7 +771,12 @@ export default function Dashboard() {
                   <Button
                     type="submit"
                     className="w-full py-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 text-lg"
-                    disabled={!amountNum || !selectedRecipient || !gbpToSll}
+                    disabled={
+                      !amountNum ||
+                      !selectedRecipient ||
+                      !actualRate ||
+                      rateLoading
+                    }
                   >
                     <div className="flex items-center justify-center space-x-2">
                       <svg
@@ -741,7 +801,7 @@ export default function Dashboard() {
           )}
 
           {/* Recipients Sidebar */}
-          <div className={showTransferForm ? "lg:col-span-1" : "lg:col-span-3"}>
+          <div className={showTransferForm ? "lg:col-span-1" : "lg:col-span-2"}>
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6">
               <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
                 <svg
@@ -794,12 +854,81 @@ export default function Dashboard() {
                         onChange={(e) => {
                           const val = e.target.value.replace(/\D/g, "");
                           setRecipientForm((f) => ({ ...f, phone: val }));
+
+                          // Validate phone number as user types
+                          if (val.length >= 6) {
+                            try {
+                              const validation = validateSierraLeonePhone(val);
+                              setPhoneValidation(validation);
+                            } catch (error) {
+                              setPhoneValidation({
+                                valid: false,
+                                error: "Invalid format",
+                              });
+                            }
+                          } else {
+                            setPhoneValidation(null);
+                          }
                         }}
                         required
                         className="flex-1 px-4 py-3 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         maxLength={8}
                       />
                     </div>
+
+                    {/* Phone validation feedback */}
+                    {phoneValidation && (
+                      <div
+                        className={`mt-2 text-sm ${
+                          phoneValidation.valid
+                            ? phoneValidation.working
+                              ? "text-green-600"
+                              : "text-orange-600"
+                            : "text-red-600"
+                        }`}
+                      >
+                        {phoneValidation.valid ? (
+                          <div className="flex items-center">
+                            <svg
+                              className="w-4 h-4 mr-1"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M5 13l4 4L19 7"
+                              />
+                            </svg>
+                            {phoneValidation.network} ({phoneValidation.prefix})
+                            {phoneValidation.warning && (
+                              <span className="ml-2 text-orange-600">
+                                ⚠️ {phoneValidation.warning}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center">
+                            <svg
+                              className="w-4 h-4 mr-1"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M6 18L18 6M6 6l12 12"
+                              />
+                            </svg>
+                            {phoneValidation.error}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -870,37 +999,89 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {recipients.map((r) => (
-                      <div
-                        key={r.id}
-                        className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors"
-                      >
-                        <div className="flex items-center">
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-semibold mr-3">
-                            {r.name[0].toUpperCase()}
-                          </div>
-                          <div>
-                            <h5 className="font-semibold text-gray-900">
-                              {r.name}
-                            </h5>
-                            <p className="text-sm text-gray-600">{r.phone}</p>
-                            <p className="text-xs text-gray-500">{r.country}</p>
-                          </div>
-                        </div>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleDeleteRecipient(r.id)}
+                    {recipients.map((r) => {
+                      // Get network info for display
+                      let networkInfo = null;
+                      try {
+                        networkInfo = validateSierraLeonePhone(r.phone);
+                      } catch (e) {
+                        // Ignore validation errors for display
+                      }
+
+                      return (
+                        <div
+                          key={r.id}
+                          className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors"
                         >
-                          Delete
-                        </Button>
-                      </div>
-                    ))}
+                          <div className="flex items-center">
+                            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-semibold mr-3">
+                              {r.name[0].toUpperCase()}
+                            </div>
+                            <div>
+                              <h5 className="font-semibold text-gray-900">
+                                {r.name}
+                              </h5>
+                              <div className="flex items-center space-x-2">
+                                <p className="text-sm text-gray-600">
+                                  {r.phone}
+                                </p>
+                                {networkInfo?.valid && (
+                                  <span
+                                    className={`text-xs px-2 py-1 rounded-full ${
+                                      networkInfo.working
+                                        ? "bg-green-100 text-green-700"
+                                        : "bg-orange-100 text-orange-700"
+                                    }`}
+                                  >
+                                    {networkInfo.network}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-500">
+                                {r.country}
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDeleteRecipient(r.id)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </div>
           </div>
+
+          {/* Transfer History - Only show when transfer form is not open */}
+          {!showTransferForm && (
+            <div className="lg:col-span-1">
+              <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+                  <svg
+                    className="w-5 h-5 mr-2 text-blue-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
+                    />
+                  </svg>
+                  Recent Transfers
+                </h3>
+                <TransferList userId={user?.id} />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -940,7 +1121,7 @@ export default function Dashboard() {
             </div>
             <div className="text-sm text-gray-500">
               Recipient will receive{" "}
-              {pendingTransfer?.amount_sll?.toLocaleString() || "0"} SLL
+              {pendingTransfer?.amount_sll?.toLocaleString() || "0"} SLE
             </div>
           </div>
 
@@ -958,7 +1139,7 @@ export default function Dashboard() {
           {paymentProcessing && (
             <div className="flex items-center justify-center py-4">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mr-2"></div>
-              <span className="text-blue-700">Processing payment...</span>
+              <span className="text-blue-700">Processing transfer...</span>
             </div>
           )}
           {paymentError && (

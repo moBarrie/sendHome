@@ -123,7 +123,7 @@ export function MoneyTransferCard() {
   const [sendAmount, setSendAmount] = useState("100.00");
   const [phoneNumber, setPhoneNumber] = useState("");
 
-  const EXCHANGE_RATE = 30000; // 1 GBP to SLL
+  const EXCHANGE_RATE = 30000; // 1 GBP to SLE
   const FEE = 2.5; // GBP
 
   const sendAmountNum = parseFloat(sendAmount) || 0;
@@ -237,7 +237,7 @@ export function MoneyTransferCard() {
               </div>
               <div className="flex items-center space-x-2 bg-secondary text-secondary-foreground rounded-r-md px-3 border border-l-0 h-10">
                 <span className="text-2xl">🇸🇱</span>
-                <span>SLL</span>
+                <span>SLE</span>
               </div>
             </div>
           </div>
@@ -274,7 +274,7 @@ export function MoneyTransferCard() {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}{" "}
-                SLL
+                SLE
               </span>
             </div>
             <div className="mb-4 text-sm">

@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
+import { validateSierraLeonePhone } from '../../lib/sierra-leone-networks.js';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,8 +8,24 @@ const supabase = createClient(
 );
 
 async function payoutWithMonime(phone: string, amount: number) {
+  // Validate and format phone number
+  const phoneValidation = validateSierraLeonePhone(phone);
+  if (!phoneValidation.valid) {
+    throw new Error(`Invalid Sierra Leone phone number: ${phoneValidation.error}`);
+  }
+  
+  console.log('📱 Phone validation:', {
+    network: phoneValidation.network,
+    prefix: phoneValidation.prefix,
+    working: phoneValidation.working,
+    originalPhone: phone,
+    formattedPhone: phoneValidation.localFormat
+  });
+  
+  const formattedPhone = phoneValidation.localFormat;
+  
   // Generate a unique idempotency key for this request
-  const idempotencyKey = `pending-${phone}-${amount}-${Date.now()}`;
+  const idempotencyKey = `pending-${formattedPhone}-${amount}-${Date.now()}`;
   
   const payoutPayload = {
     amount: { 
@@ -17,12 +34,14 @@ async function payoutWithMonime(phone: string, amount: number) {
     },
     destination: { 
       providerCode: 'm17', // Default provider code for Sierra Leone
-      accountId: phone 
+      accountId: formattedPhone 
     },
     // Remove source field - Monime will use default financial account
     metadata: { 
       source: 'sendHome-pending-processing',
-      processedAt: new Date().toISOString()
+      processedAt: new Date().toISOString(),
+      network: phoneValidation.network,
+      prefix: phoneValidation.prefix
     }
   };
   

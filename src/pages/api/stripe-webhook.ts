@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import Stripe from 'stripe';
 import { buffer } from 'micro';
 import { createClient } from '@supabase/supabase-js';
+import { validateSierraLeonePhone } from '../../lib/sierra-leone-networks.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: '2025-05-28.basil',
@@ -28,6 +29,33 @@ async function payoutWithMonime(phone: string, amount: number, providerCode: str
     stripePaymentIntentId
   });
   
+  // Validate Sierra Leone phone number
+  let phoneValidation;
+  try {
+    phoneValidation = validateSierraLeonePhone(phone);
+    if (!phoneValidation.valid) {
+      throw new Error(`Invalid Sierra Leone phone number: ${phoneValidation.error}`);
+    }
+    
+    console.log('📱 Phone validation:', {
+      network: phoneValidation.network,
+      prefix: phoneValidation.prefix,
+      working: phoneValidation.working,
+      originalPhone: phone,
+      formattedPhone: phoneValidation.localFormat
+    });
+    
+    if (phoneValidation.warning) {
+      console.warn('⚠️ Phone warning:', phoneValidation.warning);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('❌ Phone validation failed:', errorMessage);
+    throw new Error(errorMessage);
+  }
+  
+  const formattedPhone = phoneValidation.localFormat;
+  
   console.log('Environment variables:', {
     MONIME_SPACE_ID: process.env.MONIME_SPACE_ID,
     MONIME_API_KEY: process.env.MONIME_API_KEY?.substring(0, 10) + '...',
@@ -53,15 +81,15 @@ async function payoutWithMonime(phone: string, amount: number, providerCode: str
     },
     destination: { 
       providerCode: providerCode || 'm17', 
-      accountId: phone 
+      accountId: formattedPhone 
     },
     // Remove source field - Monime will use default financial account
     metadata: { 
       stripePaymentIntentId,
       source: 'sendHome-webhook',
       createdAt: new Date().toISOString(),
-      originalAmount: amount,
-      convertedAmount: Math.round(Number(amount))
+      originalAmount: String(amount),
+      convertedAmount: String(Math.round(Number(amount)))
     }
   };
   
