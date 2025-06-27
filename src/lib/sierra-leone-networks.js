@@ -2,16 +2,25 @@
 export const SIERRA_LEONE_NETWORKS = {
   // Working prefixes (tested with Monime m17 provider)
   AFRICELL_76: { prefix: "76", network: "Africell", working: true },
+  AIRTEL_73: { prefix: "73", network: "Airtel", working: true },
   AIRTEL_78: { prefix: "78", network: "Airtel", working: true },
   AIRTEL_79: { prefix: "79", network: "Airtel", working: true },
 
-  // Additional prefixes to test/support
+  // Additional Airtel prefixes (need testing)
+  AIRTEL_70: { prefix: "70", network: "Airtel", working: false },
+  AIRTEL_74: { prefix: "74", network: "Airtel", working: false },
+  AIRTEL_75: { prefix: "75", network: "Airtel", working: false },
+
+  // Additional Africell prefixes
   AFRICELL_77: { prefix: "77", network: "Africell", working: false },
   AFRICELL_88: { prefix: "88", network: "Africell", working: false },
+
+  // Orange prefixes
   ORANGE_30: { prefix: "30", network: "Orange", working: false },
   ORANGE_33: { prefix: "33", network: "Orange", working: false },
   ORANGE_34: { prefix: "34", network: "Orange", working: false },
-  AIRTEL_70: { prefix: "70", network: "Airtel", working: false },
+
+  // QCell prefixes  
   QCELL_25: { prefix: "25", network: "QCell", working: false },
   QCELL_95: { prefix: "95", network: "QCell", working: false },
   QCELL_99: { prefix: "99", network: "QCell", working: false },
