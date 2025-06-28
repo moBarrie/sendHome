@@ -212,7 +212,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Update transfer with payout result
       const updateData = {
         status: payoutResult.success ? 'processing' : 'failed',
-        payout_id: payoutResult.result?.id || null,
+        monime_payout_id: payoutResult.result?.id || null,
+        transaction_reference: payoutResult.result?.source?.transactionReference || null,
+        failure_reason: payoutResult.result?.failureDetail?.message || null,
         metadata: {
           ...transfer.metadata,
           payout_response: payoutResult,

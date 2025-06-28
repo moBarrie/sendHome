@@ -1,17 +1,30 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { RefreshCw, ExternalLink, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { useState, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  RefreshCw,
+  ExternalLink,
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+} from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 interface MonimePayout {
   id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  status: "pending" | "processing" | "completed" | "failed" | "cancelled";
   amount: {
     value: number;
     currency: string;
@@ -37,6 +50,12 @@ interface MonimePayout {
 interface Transfer {
   id: string;
   amount: number;
+  amount_gbp: number;
+  amount_sll: number;
+  fee_gbp: number;
+  sendhome_fee_gbp: number;
+  total_gbp: number;
+  gbp_to_sll_rate: number;
   recipient_phone: string;
   recipient_name: string;
   status: string;
@@ -49,30 +68,36 @@ interface Transfer {
 
 const StatusIcon = ({ status }: { status: string }) => {
   switch (status) {
-    case 'completed':
+    case "completed":
       return <CheckCircle className="h-4 w-4 text-green-500" />;
-    case 'failed':
-    case 'cancelled':
+    case "failed":
+    case "cancelled":
       return <XCircle className="h-4 w-4 text-red-500" />;
-    case 'processing':
+    case "processing":
       return <AlertCircle className="h-4 w-4 text-yellow-500" />;
-    case 'pending':
+    case "pending":
     default:
       return <Clock className="h-4 w-4 text-gray-500" />;
   }
 };
 
 const StatusBadge = ({ status }: { status: string }) => {
-  const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-    completed: 'default',
-    failed: 'destructive',
-    cancelled: 'destructive',
-    processing: 'secondary',
-    pending: 'outline'
+  const variants: Record<
+    string,
+    "default" | "secondary" | "destructive" | "outline"
+  > = {
+    completed: "default",
+    failed: "destructive",
+    cancelled: "destructive",
+    processing: "secondary",
+    pending: "outline",
   };
 
   return (
-    <Badge variant={variants[status] || 'outline'} className="flex items-center gap-1">
+    <Badge
+      variant={variants[status] || "outline"}
+      className="flex items-center gap-1"
+    >
       <StatusIcon status={status} />
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </Badge>
@@ -89,33 +114,35 @@ export default function TransferMonitoringPage() {
 
   const fetchMonimePayouts = async () => {
     try {
-      const response = await fetch('/api/monime-payouts');
+      const response = await fetch("/api/monime-payouts");
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch payouts');
+        throw new Error(data.error || "Failed to fetch payouts");
       }
 
       setMonimePayouts(data.data || []);
     } catch (err) {
-      console.error('Error fetching Monime payouts:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch payouts');
+      console.error("Error fetching Monime payouts:", err);
+      setError(err instanceof Error ? err.message : "Failed to fetch payouts");
     }
   };
 
   const fetchTransfers = async () => {
     try {
-      const response = await fetch('/api/admin/transfers');
+      const response = await fetch("/api/admin/transfers");
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch transfers');
+        throw new Error(data.error || "Failed to fetch transfers");
       }
 
       setTransfers(data.transfers || []);
     } catch (err) {
-      console.error('Error fetching transfers:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch transfers');
+      console.error("Error fetching transfers:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch transfers"
+      );
     }
   };
 
@@ -124,25 +151,24 @@ export default function TransferMonitoringPage() {
     setError(null);
 
     try {
-      const response = await fetch('/api/sync-transfer-status', {
-        method: 'POST',
+      const response = await fetch("/api/sync-transfer-status", {
+        method: "POST",
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to sync status');
+        throw new Error(data.error || "Failed to sync status");
       }
 
-      console.log('Sync result:', data);
+      console.log("Sync result:", data);
       setLastSync(new Date());
-      
+
       // Refresh both datasets
       await Promise.all([fetchMonimePayouts(), fetchTransfers()]);
-      
     } catch (err) {
-      console.error('Error syncing transfer status:', err);
-      setError(err instanceof Error ? err.message : 'Failed to sync status');
+      console.error("Error syncing transfer status:", err);
+      setError(err instanceof Error ? err.message : "Failed to sync status");
     } finally {
       setSyncing(false);
     }
@@ -155,7 +181,7 @@ export default function TransferMonitoringPage() {
     try {
       await Promise.all([fetchMonimePayouts(), fetchTransfers()]);
     } catch (err) {
-      console.error('Error loading data:', err);
+      console.error("Error loading data:", err);
     } finally {
       setLoading(false);
     }
@@ -176,16 +202,24 @@ export default function TransferMonitoringPage() {
     return () => clearInterval(interval);
   }, [syncing, loading]);
 
-  const formatAmount = (amount: number, currency: string = 'SLE') => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency,
-      minimumFractionDigits: 2,
-    }).format(amount / 100);
+  const formatAmount = (amount: number, currency: string = "SLE") => {
+    if (currency === "GBP") {
+      return new Intl.NumberFormat("en-GB", {
+        style: "currency",
+        currency: "GBP",
+        minimumFractionDigits: 2,
+      }).format(amount); // GBP amounts are stored as decimal values
+    } else {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "SLE",
+        minimumFractionDigits: 2,
+      }).format(amount / 100); // SLE amounts are stored in smallest unit (cents)
+    }
   };
 
   const formatPhoneNumber = (phone: string) => {
-    if (phone.startsWith('+232')) {
+    if (phone.startsWith("+232")) {
       return phone;
     }
     return `+232${phone}`;
@@ -206,9 +240,10 @@ export default function TransferMonitoringPage() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Transfer Monitoring</h1>
+          <h1 className="text-3xl font-bold">Payout Transfer List</h1>
           <p className="text-gray-600 mt-1">
-            Monitor Monime payouts and sync transfer statuses
+            Monitor Monime payouts, sync transfer statuses, and view detailed
+            transfer information
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -222,8 +257,10 @@ export default function TransferMonitoringPage() {
             disabled={syncing}
             variant="outline"
           >
-            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing...' : 'Sync Status'}
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`}
+            />
+            {syncing ? "Syncing..." : "Sync Status"}
           </Button>
           <Button onClick={loadData} variant="outline">
             <RefreshCw className="h-4 w-4 mr-2" />
@@ -254,7 +291,7 @@ export default function TransferMonitoringPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {monimePayouts.filter(p => p.status === 'completed').length}
+              {monimePayouts.filter((p) => p.status === "completed").length}
             </div>
           </CardContent>
         </Card>
@@ -264,7 +301,11 @@ export default function TransferMonitoringPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-600">
-              {monimePayouts.filter(p => p.status === 'processing' || p.status === 'pending').length}
+              {
+                monimePayouts.filter(
+                  (p) => p.status === "processing" || p.status === "pending"
+                ).length
+              }
             </div>
           </CardContent>
         </Card>
@@ -274,7 +315,11 @@ export default function TransferMonitoringPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {monimePayouts.filter(p => p.status === 'failed' || p.status === 'cancelled').length}
+              {
+                monimePayouts.filter(
+                  (p) => p.status === "failed" || p.status === "cancelled"
+                ).length
+              }
             </div>
           </CardContent>
         </Card>
@@ -283,7 +328,7 @@ export default function TransferMonitoringPage() {
       <Tabs defaultValue="monime" className="space-y-4">
         <TabsList>
           <TabsTrigger value="monime">Monime Payouts</TabsTrigger>
-          <TabsTrigger value="transfers">Local Transfers</TabsTrigger>
+          <TabsTrigger value="transfers">Database Transfers</TabsTrigger>
         </TabsList>
 
         <TabsContent value="monime" className="space-y-4">
@@ -309,13 +354,38 @@ export default function TransferMonitoringPage() {
                         <StatusBadge status={payout.status} />
                       </div>
                       <div className="text-sm text-gray-600">
-                        <p>Amount: {formatAmount(payout.amount.value, payout.amount.currency)}</p>
-                        <p>Created: {formatDistanceToNow(new Date(payout.createTime), { addSuffix: true })}</p>
+                        <p>
+                          Amount:{" "}
+                          {formatAmount(
+                            payout.amount.value,
+                            payout.amount.currency
+                          )}
+                        </p>
+                        <p>Provider: {payout.destination.providerCode}</p>
+                        <p>
+                          Created:{" "}
+                          {formatDistanceToNow(new Date(payout.createTime), {
+                            addSuffix: true,
+                          })}
+                        </p>
+                        {payout.updateTime && (
+                          <p>
+                            Updated:{" "}
+                            {formatDistanceToNow(new Date(payout.updateTime), {
+                              addSuffix: true,
+                            })}
+                          </p>
+                        )}
                         {payout.failureDetail && (
-                          <p className="text-red-600">Error: {payout.failureDetail.message}</p>
+                          <p className="text-red-600 font-medium">
+                            Error ({payout.failureDetail.code}):{" "}
+                            {payout.failureDetail.message}
+                          </p>
                         )}
                         {payout.destination.transactionReference && (
-                          <p>Ref: {payout.destination.transactionReference}</p>
+                          <p className="font-mono text-xs">
+                            Ref: {payout.destination.transactionReference}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -363,17 +433,61 @@ export default function TransferMonitoringPage() {
                         <StatusBadge status={transfer.status} />
                       </div>
                       <div className="text-sm text-gray-600">
-                        <p>Phone: {formatPhoneNumber(transfer.recipient_phone)}</p>
-                        <p>Amount: {formatAmount(transfer.amount)}</p>
-                        <p>Created: {formatDistanceToNow(new Date(transfer.created_at), { addSuffix: true })}</p>
+                        <p>
+                          Phone: {formatPhoneNumber(transfer.recipient_phone)}
+                        </p>
+                        <div className="grid grid-cols-2 gap-2 mt-1">
+                          <p>Paid: {formatAmount(transfer.total_gbp, "GBP")}</p>
+                          <p>
+                            Received: {formatAmount(transfer.amount_sll, "SLE")}
+                          </p>
+                          <p>
+                            Send: {formatAmount(transfer.amount_gbp, "GBP")}
+                          </p>
+                          <p>
+                            Fee:{" "}
+                            {formatAmount(
+                              transfer.fee_gbp + transfer.sendhome_fee_gbp,
+                              "GBP"
+                            )}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Rate: 1 GBP ={" "}
+                          {transfer.gbp_to_sll_rate?.toLocaleString() || "N/A"}{" "}
+                          SLE
+                        </p>
+                        <p>
+                          Created:{" "}
+                          {formatDistanceToNow(new Date(transfer.created_at), {
+                            addSuffix: true,
+                          })}
+                        </p>
+                        {transfer.updated_at !== transfer.created_at && (
+                          <p>
+                            Updated:{" "}
+                            {formatDistanceToNow(
+                              new Date(transfer.updated_at),
+                              {
+                                addSuffix: true,
+                              }
+                            )}
+                          </p>
+                        )}
                         {transfer.monime_payout_id && (
-                          <p>Monime ID: {transfer.monime_payout_id}</p>
+                          <p className="font-mono text-xs">
+                            Monime: {transfer.monime_payout_id}
+                          </p>
                         )}
                         {transfer.failure_reason && (
-                          <p className="text-red-600">Error: {transfer.failure_reason}</p>
+                          <p className="text-red-600 font-medium">
+                            Error: {transfer.failure_reason}
+                          </p>
                         )}
                         {transfer.transaction_reference && (
-                          <p>Ref: {transfer.transaction_reference}</p>
+                          <p className="font-mono text-xs">
+                            Ref: {transfer.transaction_reference}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -382,7 +496,11 @@ export default function TransferMonitoringPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => navigator.clipboard.writeText(transfer.monime_payout_id!)}
+                          onClick={() =>
+                            navigator.clipboard.writeText(
+                              transfer.monime_payout_id!
+                            )
+                          }
                         >
                           Copy Monime ID
                         </Button>

@@ -15,10 +15,19 @@ interface Transfer {
   recipient_name: string;
   recipient_phone: string;
   amount: number;
+  amount_gbp: number;
+  amount_sll: number;
+  fee_gbp: number;
+  sendhome_fee_gbp: number;
+  total_gbp: number;
+  gbp_to_sll_rate: number;
   currency: string;
   status: "pending" | "processing" | "completed" | "failed";
   created_at: string;
   payment_intent_id: string;
+  monime_payout_id?: string;
+  transaction_reference?: string;
+  failure_reason?: string;
   profiles: {
     email: string;
     full_name: string;
@@ -209,7 +218,7 @@ export default function AdminTransfersPage() {
             <Card key={transfer.id} className="p-4">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-6">
                     <div>
                       <h3 className="font-semibold text-lg">
                         To: {transfer.recipient_name}
@@ -237,8 +246,70 @@ export default function AdminTransfersPage() {
                       <p className="text-sm text-gray-500">
                         🆔 Transfer ID: {transfer.id}
                       </p>
+                      {transfer.monime_payout_id && (
+                        <p className="text-sm text-gray-500">
+                          🏦 Monime ID: {transfer.monime_payout_id}
+                        </p>
+                      )}
+                      {transfer.transaction_reference && (
+                        <p className="text-sm text-gray-500">
+                          📄 Ref: {transfer.transaction_reference}
+                        </p>
+                      )}
                     </div>
                   </div>
+
+                  {/* Financial breakdown */}
+                  <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-sm text-gray-700 mb-2">
+                      Financial Breakdown
+                    </h4>
+                    <div className="grid grid-cols-3 gap-4 text-xs">
+                      <div>
+                        <span className="text-gray-600">Send Amount:</span>
+                        <div className="font-medium">
+                          £{transfer.amount_gbp.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Transfer Fee:</span>
+                        <div className="font-medium">
+                          £{transfer.fee_gbp.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">SendHome Fee:</span>
+                        <div className="font-medium">
+                          £{transfer.sendhome_fee_gbp.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Total Paid:</span>
+                        <div className="font-medium text-red-600">
+                          £{transfer.total_gbp.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Exchange Rate:</span>
+                        <div className="font-medium">
+                          1 GBP = {transfer.gbp_to_sll_rate.toLocaleString()}{" "}
+                          SLE
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Recipient Gets:</span>
+                        <div className="font-medium text-green-600">
+                          {(transfer.amount_sll / 100).toLocaleString()} SLE
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {transfer.failure_reason && (
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                      <strong>Failure Reason:</strong> {transfer.failure_reason}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right ml-4">
                   <p className="font-bold text-xl">

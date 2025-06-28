@@ -1,16 +1,36 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { RefreshCw, Clock, CheckCircle, XCircle, AlertCircle, ExternalLink } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { useState, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  RefreshCw,
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  ExternalLink,
+} from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 interface Transfer {
   id: string;
   amount: number;
+  amount_gbp: number;
+  amount_sll: number;
+  fee_gbp: number;
+  sendhome_fee_gbp: number;
+  total_gbp: number;
+  gbp_to_sll_rate: number;
+  currency: string;
   recipient_phone: string;
   recipient_name: string;
   status: string;
@@ -23,59 +43,70 @@ interface Transfer {
 
 const StatusIcon = ({ status }: { status: string }) => {
   switch (status) {
-    case 'completed':
+    case "completed":
       return <CheckCircle className="h-5 w-5 text-green-500" />;
-    case 'failed':
+    case "failed":
       return <XCircle className="h-5 w-5 text-red-500" />;
-    case 'processing':
+    case "processing":
       return <AlertCircle className="h-5 w-5 text-yellow-500 animate-pulse" />;
-    case 'pending':
+    case "pending":
     default:
       return <Clock className="h-5 w-5 text-gray-500" />;
   }
 };
 
 const StatusBadge = ({ status }: { status: string }) => {
-  const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-    completed: 'default',
-    failed: 'destructive',
-    processing: 'secondary',
-    pending: 'outline'
+  const variants: Record<
+    string,
+    "default" | "secondary" | "destructive" | "outline"
+  > = {
+    completed: "default",
+    failed: "destructive",
+    processing: "secondary",
+    pending: "outline",
   };
 
   const colors: Record<string, string> = {
-    completed: 'bg-green-50 text-green-700 border-green-200',
-    failed: 'bg-red-50 text-red-700 border-red-200',
-    processing: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-    pending: 'bg-gray-50 text-gray-700 border-gray-200'
+    completed: "bg-green-50 text-green-700 border-green-200",
+    failed: "bg-red-50 text-red-700 border-red-200",
+    processing: "bg-yellow-50 text-yellow-700 border-yellow-200",
+    pending: "bg-gray-50 text-gray-700 border-gray-200",
   };
 
   return (
-    <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium border ${colors[status] || colors.pending}`}>
+    <div
+      className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium border ${
+        colors[status] || colors.pending
+      }`}
+    >
       <StatusIcon status={status} />
-      {status === 'completed' && 'Completed'}
-      {status === 'failed' && 'Failed'}
-      {status === 'processing' && 'Processing'}
-      {status === 'pending' && 'Pending'}
+      {status === "completed" && "Completed"}
+      {status === "failed" && "Failed"}
+      {status === "processing" && "Processing"}
+      {status === "pending" && "Pending"}
     </div>
   );
 };
 
-const getStatusMessage = (status: string, failureReason?: string, transactionRef?: string) => {
+const getStatusMessage = (
+  status: string,
+  failureReason?: string,
+  transactionRef?: string
+) => {
   switch (status) {
-    case 'completed':
-      return transactionRef 
+    case "completed":
+      return transactionRef
         ? `Transfer completed successfully. Transaction reference: ${transactionRef}`
-        : 'Transfer completed successfully. The recipient should have received the funds.';
-    case 'failed':
-      return failureReason 
+        : "Transfer completed successfully. The recipient should have received the funds.";
+    case "failed":
+      return failureReason
         ? `Transfer failed: ${failureReason}`
-        : 'Transfer failed. Please contact support if you need assistance.';
-    case 'processing':
-      return 'Your transfer is being processed by our payment partner. This usually takes a few minutes.';
-    case 'pending':
+        : "Transfer failed. Please contact support if you need assistance.";
+    case "processing":
+      return "Your transfer is being processed by our payment partner. This usually takes a few minutes.";
+    case "pending":
     default:
-      return 'Your transfer is queued for processing. We\'ll update you as soon as it starts processing.';
+      return "Your transfer is queued for processing. We'll update you as soon as it starts processing.";
   }
 };
 
@@ -84,7 +115,10 @@ interface UserTransferStatusProps {
   autoRefresh?: boolean;
 }
 
-export default function UserTransferStatus({ userId, autoRefresh = true }: UserTransferStatusProps) {
+export default function UserTransferStatus({
+  userId,
+  autoRefresh = true,
+}: UserTransferStatusProps) {
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,19 +126,23 @@ export default function UserTransferStatus({ userId, autoRefresh = true }: UserT
 
   const fetchTransfers = async () => {
     try {
-      const url = userId ? `/api/user-transfers?userId=${userId}` : '/api/user-transfers';
+      const url = userId
+        ? `/api/user-transfers?userId=${userId}`
+        : "/api/user-transfers";
       const response = await fetch(url);
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch transfers');
+        throw new Error(data.error || "Failed to fetch transfers");
       }
 
       setTransfers(data.transfers || []);
       setError(null);
     } catch (err) {
-      console.error('Error fetching transfers:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch transfers');
+      console.error("Error fetching transfers:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch transfers"
+      );
     }
   };
 
@@ -137,16 +175,31 @@ export default function UserTransferStatus({ userId, autoRefresh = true }: UserT
     return () => clearInterval(interval);
   }, [autoRefresh, loading, refreshing]);
 
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'SLE',
-      minimumFractionDigits: 2,
-    }).format(amount / 100);
+  const formatAmount = (amount: number, currency: string = "SLE") => {
+    if (currency === "GBP") {
+      return new Intl.NumberFormat("en-GB", {
+        style: "currency",
+        currency: "GBP",
+        minimumFractionDigits: 2,
+      }).format(amount);
+    } else {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "SLE",
+        minimumFractionDigits: 2,
+      }).format(currency === "SLE" ? amount : amount / 100);
+    }
+  };
+
+  const formatExchangeRate = (rate: number) => {
+    return new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(rate);
   };
 
   const formatPhoneNumber = (phone: string) => {
-    if (phone.startsWith('+232')) {
+    if (phone.startsWith("+232")) {
       return phone;
     }
     return `+232${phone}`;
@@ -170,7 +223,9 @@ export default function UserTransferStatus({ userId, autoRefresh = true }: UserT
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Your Transfers</h2>
-          <p className="text-gray-600">Track the status of your money transfers</p>
+          <p className="text-gray-600">
+            Track the status of your money transfers
+          </p>
         </div>
         <Button
           onClick={refreshTransfers}
@@ -178,8 +233,10 @@ export default function UserTransferStatus({ userId, autoRefresh = true }: UserT
           variant="outline"
           size="sm"
         >
-          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`}
+          />
+          {refreshing ? "Refreshing..." : "Refresh"}
         </Button>
       </div>
 
@@ -199,8 +256,23 @@ export default function UserTransferStatus({ userId, autoRefresh = true }: UserT
                   <CardTitle className="text-lg">
                     {transfer.recipient_name}
                   </CardTitle>
-                  <CardDescription>
-                    {formatPhoneNumber(transfer.recipient_phone)} • {formatAmount(transfer.amount)}
+                  <CardDescription className="space-y-1">
+                    <div>{formatPhoneNumber(transfer.recipient_phone)}</div>
+                    <div className="flex items-center gap-4 text-xs">
+                      <span className="font-medium">
+                        You paid: {formatAmount(transfer.total_gbp, "GBP")}
+                      </span>
+                      <span>•</span>
+                      <span className="font-medium">
+                        They received:{" "}
+                        {formatAmount(transfer.amount_sll, "SLE")}
+                      </span>
+                      <span>•</span>
+                      <span className="text-gray-500">
+                        Rate: 1 GBP ={" "}
+                        {formatExchangeRate(transfer.gbp_to_sll_rate)} SLE
+                      </span>
+                    </div>
                   </CardDescription>
                 </div>
                 <StatusBadge status={transfer.status} />
@@ -210,40 +282,126 @@ export default function UserTransferStatus({ userId, autoRefresh = true }: UserT
               <div className="space-y-3">
                 <div className="text-sm text-gray-600">
                   <p className="mb-2">
-                    {getStatusMessage(transfer.status, transfer.failure_reason, transfer.transaction_reference)}
+                    {getStatusMessage(
+                      transfer.status,
+                      transfer.failure_reason,
+                      transfer.transaction_reference
+                    )}
                   </p>
-                  
+
                   <div className="flex items-center justify-between text-xs">
                     <span>
-                      Sent {formatDistanceToNow(new Date(transfer.created_at), { addSuffix: true })}
+                      Sent{" "}
+                      {formatDistanceToNow(new Date(transfer.created_at), {
+                        addSuffix: true,
+                      })}
                     </span>
                     {transfer.updated_at !== transfer.created_at && (
                       <span>
-                        Updated {formatDistanceToNow(new Date(transfer.updated_at), { addSuffix: true })}
+                        Updated{" "}
+                        {formatDistanceToNow(new Date(transfer.updated_at), {
+                          addSuffix: true,
+                        })}
                       </span>
                     )}
                   </div>
                 </div>
 
-                {transfer.status === 'failed' && (
+                {/* Detailed breakdown */}
+                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">
+                    Transfer Breakdown
+                  </h4>
+
+                  {/* Amount breakdown */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Send amount:</span>
+                      <span className="font-medium">
+                        {formatAmount(transfer.amount_gbp, "GBP")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Transfer fee:</span>
+                      <span className="font-medium">
+                        {formatAmount(transfer.fee_gbp, "GBP")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">SendHome fee:</span>
+                      <span className="font-medium">
+                        {formatAmount(transfer.sendhome_fee_gbp, "GBP")}
+                      </span>
+                    </div>
+                    <div className="border-t border-gray-200 pt-2">
+                      <div className="flex justify-between text-sm font-medium">
+                        <span className="text-gray-700">Total you paid:</span>
+                        <span className="text-gray-900">
+                          {formatAmount(transfer.total_gbp, "GBP")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Exchange rate info */}
+                  <div className="border-t border-gray-200 pt-3 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Exchange rate:</span>
+                      <span className="font-medium">
+                        1 GBP = {formatExchangeRate(transfer.gbp_to_sll_rate)}{" "}
+                        SLE
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm font-medium">
+                      <span className="text-gray-700">Recipient receives:</span>
+                      <span className="text-green-600 font-semibold">
+                        {formatAmount(transfer.amount_sll, "SLE")}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Additional details */}
+                  <div className="border-t border-gray-200 pt-3 space-y-1">
+                    {transfer.transaction_reference && (
+                      <div className="text-xs text-gray-500">
+                        <span className="font-medium">Transaction ID:</span>{" "}
+                        {transfer.transaction_reference}
+                      </div>
+                    )}
+                    {transfer.monime_payout_id && (
+                      <div className="text-xs text-gray-500">
+                        <span className="font-medium">Payout ID:</span>{" "}
+                        {transfer.monime_payout_id}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-500">
+                      <span className="font-medium">Transfer ID:</span>{" "}
+                      {transfer.id}
+                    </div>
+                  </div>
+                </div>
+
+                {transfer.status === "failed" && (
                   <Alert>
                     <XCircle className="h-4 w-4" />
                     <AlertDescription>
-                      This transfer failed. You can try sending again or contact support for help.
+                      This transfer failed. You can try sending again or contact
+                      support for help.
                     </AlertDescription>
                   </Alert>
                 )}
 
-                {transfer.status === 'processing' && (
+                {transfer.status === "processing" && (
                   <Alert>
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>
-                      Your transfer is being processed. The recipient will receive an SMS confirmation once completed.
+                      Your transfer is being processed. The recipient will
+                      receive an SMS confirmation once completed.
                     </AlertDescription>
                   </Alert>
                 )}
 
-                {transfer.status === 'completed' && (
+                {transfer.status === "completed" && (
                   <Alert className="border-green-200 bg-green-50">
                     <CheckCircle className="h-4 w-4 text-green-600" />
                     <AlertDescription className="text-green-800">

@@ -80,14 +80,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       // 2. Payout via Monime
       const payoutResult = await payoutWithMonime(transfer.recipient_phone, transfer.amount_sll);
-      // 3. Update transfer to completed
+      // 3. Update transfer with payout result
       await supabase
         .from('transfers')
         .update({
-          status: 'completed',
-          payout_status: payoutResult.status,
-          payout_transaction_id: payoutResult.transaction_id,
-          payout_response: payoutResult,
+          status: payoutResult.success ? 'processing' : 'failed',
+          monime_payout_id: payoutResult.result?.id || null,
+          transaction_reference: payoutResult.result?.source?.transactionReference || null,
+          failure_reason: payoutResult.result?.failureDetail?.message || null,
+          metadata: {
+            payout_response: payoutResult,
+            payout_created_at: new Date().toISOString()
+          }
         })
         .eq('id', transfer.id);
       processed++;
