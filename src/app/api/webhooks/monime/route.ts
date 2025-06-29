@@ -1,20 +1,25 @@
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { env } from '@/env.mjs';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+
+// Create server-side client with service role key
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: Request) {
   try {
     const body = await req.text();
-    const headersList = headers();
+    const headersList = await headers();
     const signature = headersList.get('monime-signature');
 
     // Verify webhook signature
     const isValidSignature = verifyWebhookSignature(
       body,
       signature,
-      env.MONIME_WEBHOOK_SECRET
+      process.env.MONIME_WEBHOOK_SECRET!
     );
 
     if (!isValidSignature) {
