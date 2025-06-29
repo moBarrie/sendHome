@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/logo";
 import NavAuthenticated from "@/components/nav-authenticated";
 import { useEffect, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
@@ -29,11 +30,8 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center justify-between">
-        <Link
-          href={isLoggedIn ? "/dashboard" : "/"}
-          className="flex items-center space-x-2 ml-6 md:ml-12"
-        >
-          <span className="font-bold text-xl">SendHome</span>
+        <Link href={isLoggedIn ? "/dashboard" : "/"} className="ml-6 md:ml-12">
+          <Logo />
         </Link>
         {isLoggedIn ? (
           <NavAuthenticated />
