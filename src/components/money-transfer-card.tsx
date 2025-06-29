@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { ArrowRight, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
 import {
@@ -21,6 +21,7 @@ import {
   useStripe,
   useElements,
 } from "@stripe/react-stripe-js";
+import { useExchangeRate } from "@/hooks/use-exchange-rate";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
@@ -123,17 +124,32 @@ export function MoneyTransferCard() {
   const [sendAmount, setSendAmount] = useState("100.00");
   const [phoneNumber, setPhoneNumber] = useState("");
 
-  const EXCHANGE_RATE = 30000; // 1 GBP to SLE
-  const FEE = 2.5; // GBP
+  // Use real-time exchange rate from dashboard
+  const {
+    rate: gbpToSll,
+    loading: rateLoading,
+    error: rateError,
+    source: rateSource,
+    lastUpdated: rateLastUpdated,
+    refresh: refreshRate,
+  } = useExchangeRate();
 
+  // Use 7.5% fee
+  const FEE_PERCENT = 0.075;
   const sendAmountNum = parseFloat(sendAmount) || 0;
+  const fee = sendAmountNum * FEE_PERCENT;
+
+  // Convert rate from integer to decimal (rate comes as integer * 1000)
+  const actualRate = gbpToSll / 1000;
 
   const recipientGets = useMemo(() => {
-    if (sendAmountNum <= FEE) {
+    if (sendAmountNum <= 0 || !actualRate) {
       return 0;
     }
-    return (sendAmountNum - FEE) * EXCHANGE_RATE;
-  }, [sendAmountNum]);
+    // Calculate after fee deduction
+    const amountAfterFee = sendAmountNum - fee;
+    return amountAfterFee > 0 ? amountAfterFee * actualRate : 0;
+  }, [sendAmountNum, fee, actualRate]);
 
   const [showSummary, setShowSummary] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
@@ -214,15 +230,17 @@ export function MoneyTransferCard() {
 
           <div className="flex items-center justify-center space-x-4 text-sm text-muted-foreground">
             <div className="flex flex-col items-center">
-              <span className="font-semibold">{FEE.toFixed(2)} GBP</span>
-              <span>Fee</span>
-            </div>
-            <ArrowRight className="w-4 h-4" />
-            <div className="flex flex-col items-center">
-              <span className="font-semibold">
-                {EXCHANGE_RATE.toLocaleString("en-US")}
-              </span>
-              <span>Rate</span>
+              <div className="flex items-center gap-1">
+                <span className="font-semibold">
+                  {actualRate
+                    ? actualRate.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                    : "31.13"}
+                </span>
+              </div>
+              <span>Exchange Rate (1 GBP = SLE)</span>
             </div>
           </div>
 
@@ -265,7 +283,11 @@ export function MoneyTransferCard() {
               <span className="font-semibold">£{sendAmountNum.toFixed(2)}</span>
             </div>
             <div className="mb-2 text-sm">
-              Fee: <span className="font-semibold">£{FEE.toFixed(2)}</span>
+              Fee: <span className="font-semibold">£{fee.toFixed(2)}</span>
+            </div>
+            <div className="mb-2 text-sm">
+              Total:{" "}
+              <span className="font-semibold">£{sendAmountNum.toFixed(2)}</span>
             </div>
             <div className="mb-2 text-sm">
               Recipient gets:{" "}
@@ -278,8 +300,10 @@ export function MoneyTransferCard() {
               </span>
             </div>
             <div className="mb-4 text-sm">
-              Recipient phone:{" "}
-              <span className="font-semibold">{phoneNumber}</span>
+              Rate:{" "}
+              <span className="font-semibold">
+                1 GBP = {actualRate?.toFixed(2)} SLE
+              </span>
             </div>
             <div className="flex gap-2">
               <Button className="flex-1" onClick={handleConfirm}>

@@ -247,8 +247,8 @@ export default function Dashboard() {
     refresh: refreshRate,
   } = useExchangeRate();
 
-  // Use a fixed 5% fee for all payment methods
-  const FEE_PERCENT = 0.05;
+  // Use a 7.5% fee for all payment methods
+  const FEE_PERCENT = 0.075;
   const amountNum = parseFloat(transferAmount) || 0;
   const fee = amountNum * FEE_PERCENT;
   const total = amountNum + fee;
@@ -637,9 +637,7 @@ export default function Dashboard() {
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">
-                            Transfer fee (5%)
-                          </span>
+                          <span className="text-gray-600">Transfer fee</span>
                           <span className="font-semibold">
                             £{fee.toFixed(2)}
                           </span>
